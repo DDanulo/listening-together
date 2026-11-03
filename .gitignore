@@ -1,0 +1,22 @@
+# dependencies & build output
+node_modules/
+dist/
+target/
+
+# editors & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# local config & secrets
+.env
+.env.*
+
+# runtime data
+logs/
+uploads/
+*.log
+
+# evaluation: raw recordings are large, commit only processed results
+eval/recordings/
