@@ -37,11 +37,20 @@ final class WsTestClient implements WebSocket.Listener, AutoCloseable {
 
 	/** Connects and joins; returns the client with the welcome message already consumed. */
 	static WsTestClient join(int port, String roomId, String name, JsonMapper mapper) {
+		return join(port, roomId, name, "c-" + name, mapper);
+	}
+
+	static WsTestClient join(int port, String roomId, String name, String clientId, JsonMapper mapper) {
 		WsTestClient client = connect(port, roomId, mapper);
-		client.send("{\"type\":\"hello\",\"protocolVersion\":1,\"clientId\":\"c-" + name + "\",\"name\":\"" + name
+		client.send("{\"type\":\"hello\",\"protocolVersion\":1,\"clientId\":\"" + clientId + "\",\"name\":\"" + name
 				+ "\"}");
 		client.welcome = client.next("welcome");
 		return client;
+	}
+
+	/** Drops the connection without a close handshake, like a lost network. */
+	void abort() {
+		ws.abort();
 	}
 
 	JsonNode welcome;

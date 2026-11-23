@@ -6,13 +6,14 @@ import {
   type PlaybackState,
   type ServerMessage,
   type Track,
+  type WelcomeMessage,
   CloseCode,
   PROTOCOL_VERSION,
 } from '../protocol/types'
 import { needsResync } from '../sync/drift'
 import { type Segment, audiblePosition, expectedPosition, planTransition } from '../sync/playback'
 import { ApiError, readDurationMs, uploadTrack } from './api'
-import { clientId } from './clientId'
+import { clientId, resetClientId } from './clientId'
 import { ClockSync } from './clockSync'
 import type { RoomSession, RoomView } from './types'
 
@@ -60,6 +61,7 @@ export class LiveRoomSession implements RoomSession {
       queue: [],
       playback: null,
       downloads: {},
+      reconnect: null,
       sync: { synced: false, offsetMs: null, bestRttMs: null, samples: 0, driftMs: null, resyncs: 0, lastResync: null },
       audio: { timestampSource: 'currentTime', outputLatencyMs: null },
       error: null,
@@ -84,10 +86,16 @@ export class LiveRoomSession implements RoomSession {
     // Keeps running while disconnected: audio is local and the last clock estimate stays valid (rule 7).
     this.timingTimer = window.setInterval(() => this.checkTiming(), TIMING_CHECK_INTERVAL_MS)
     this.update({ connection: 'connecting', error: null })
+    // One clock for the whole visit: it keeps its estimate across reconnects.
+    this.clock ??= new ClockSync({
+      send: (ping) => this.connection?.send(ping),
+      update: () => this.onClockUpdate(),
+      dead: () => this.connection?.reconnect('No answer to pings'),
+    })
     this.connection = new Connection(roomSocketUrl(this.view.roomId), {
       open: () => this.connection?.send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, clientId: clientId(), name }),
       message: (message, receivedAt) => this.handle(message, receivedAt),
-      close: (code, reason) => this.handleClose(code, reason),
+      close: (code, reason, retryInMs) => this.handleClose(code, reason, retryInMs),
     })
     await unlocked
   }
@@ -149,17 +157,7 @@ export class LiveRoomSession implements RoomSession {
         this.clock?.handlePong(message, receivedAt)
         break
       case 'welcome':
-        this.lastRev = message.room.playback.rev
-        this.pendingApply = true
-        this.update({
-          connection: 'open',
-          me: message.memberId,
-          members: message.room.members,
-          queue: message.room.queue,
-          playback: message.room.playback,
-        })
-        this.startClockSync()
-        this.downloadQueue()
+        this.handleWelcome(message)
         break
       case 'members':
         this.update({ members: message.members })
@@ -187,10 +185,55 @@ export class LiveRoomSession implements RoomSession {
     }
   }
 
-  private handleClose(code: number, reason: string): void {
-    // Rule 7: audio is local and keeps playing; the PoC has no reconnect yet.
+  /** First join or a reconnect: the snapshot replaces what we knew, except for an older playback state. */
+  private handleWelcome(message: WelcomeMessage): void {
+    const reconnected = this.view.me !== null
+    const { playback } = message.room
+    // Rule 5 also across reconnects: a state we already applied (or a newer one) must not be applied again.
+    const newer = playback.rev > this.lastRev
+    if (newer) {
+      this.lastRev = playback.rev
+      this.pendingApply = true
+    }
+    this.update({
+      connection: 'open',
+      reconnect: null,
+      me: message.memberId,
+      members: message.room.members,
+      queue: message.room.queue,
+      ...(newer ? { playback } : {}),
+      // A disconnect error is resolved now; anything else stays on screen.
+      error: this.view.error?.code === 'DISCONNECTED' ? null : this.view.error,
+    })
+    this.startClockSync()
+    this.forgetRemovedTracks()
+    if (reconnected) {
+      // trackStatus messages sent while the socket was down were lost.
+      for (const [trackId, status] of Object.entries(this.view.downloads)) {
+        this.connection?.send({ type: 'trackStatus', trackId, status })
+      }
+      // The clock is still synced: apply a state that changed while we were away right now.
+      if (this.pendingApply) this.applyPlayback()
+    }
+    this.downloadQueue()
+    if (this.view.playback) this.prepareUpcoming(this.view.playback)
+  }
+
+  private handleClose(code: number, reason: string, retryInMs: number | null): void {
+    // Rule 7: audio is local and keeps playing on the last state and clock estimate while we reconnect.
     this.clock?.stop()
     window.clearInterval(this.statsTimer)
+    if (code === CloseCode.REPLACED) {
+      // Another tab took our clientId (a duplicated tab shares sessionStorage): continue as a new member.
+      resetClientId()
+    }
+    if (retryInMs !== null) {
+      this.update({
+        connection: 'reconnecting',
+        reconnect: { attempt: (this.view.reconnect?.attempt ?? 0) + 1, retryAt: performance.now() + retryInMs },
+      })
+      return
+    }
     this.connection = null
     let error = this.view.error
     if (code === CloseCode.ROOM_NOT_FOUND) {
@@ -199,15 +242,13 @@ export class LiveRoomSession implements RoomSession {
       // Replaces any older error still on screen: the disconnect is what matters now.
       error = { code: 'DISCONNECTED', message: reason || 'Connection lost' }
     }
-    this.update({ connection: 'closed', error })
+    this.update({ connection: 'closed', reconnect: null, error })
   }
 
   // ---------- clock ----------
 
   private startClockSync(): void {
-    this.clock?.stop()
-    this.clock = new ClockSync((ping) => this.connection?.send(ping), () => this.onClockUpdate())
-    this.clock.start()
+    this.clock?.start()
     window.clearInterval(this.statsTimer)
     this.statsTimer = window.setInterval(() => this.sendStats(), STATS_INTERVAL_MS)
   }

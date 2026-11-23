@@ -90,8 +90,11 @@ client                                            server
 - The client generates `clientId` (UUID v4) once per browser tab and keeps it in `sessionStorage`.
 - On disconnect, the client reconnects with exponential backoff (0.5 s, 1 s, 2 s, 4 s, then every 8 s) and sends `hello` with the **same `clientId`**. The server maps it to the **same `memberId`**.
 - **While disconnected, the client keeps playing** based on the last `playback` state and its last clock estimate. Audio is local, so a short disconnect must be inaudible.
-- After reconnecting, the client runs a new ping burst and reconciles with the `playback` state from `welcome`.
-- The server marks a member `connected: false` on disconnect and removes it after **60 s** without reconnecting.
+- After reconnecting, the client runs a new ping burst and reconciles with the `playback` state from `welcome` (applied only if its `rev` is newer than the last applied one). It keeps its clock estimate: the offset belongs to the two clocks, not to the connection.
+- The client also reconnects when the connection looks dead: no `pong` for **8 s** while pings are being sent every 5 s. After a network switch, browsers can take minutes to notice that a socket is gone.
+- The server marks a member `connected: false` on disconnect and removes it after **60 s** without reconnecting (`app.rooms.reconnect-grace-ms`). A close with code `1000` means the user left on purpose: the member is removed at once.
+- A disconnected member still counts toward the room's member limit. A room whose members are all disconnected counts as empty for the idle timeout (§2).
+- A `hello` whose `clientId` belongs to a member that still has an open connection takes that member over; the old connection is closed with `4410`. A client that receives `4410` on its current connection was replaced by a duplicate of itself (e.g. a duplicated browser tab copies `sessionStorage`): it generates a new `clientId` and joins again as a new member.
 
 ### 3.3 Close codes
 
@@ -99,9 +102,11 @@ client                                            server
 |---|---|
 | `1000` | Normal close (user left) |
 | `1001` | Server shutting down |
+| `4000` | Closed by the client because the connection looked dead (it reconnects) |
 | `4400` | Protocol violation or unsupported `protocolVersion` |
 | `4404` | Room not found |
 | `4409` | Room is full |
+| `4410` | Replaced by a newer connection with the same `clientId` (§3.2) |
 | `4429` | Too many messages (rate limit) |
 
 ---
@@ -196,7 +201,7 @@ When the current track ends, the server switches to the next track in the queue 
 ```json
 { "type": "hello", "protocolVersion": 1, "clientId": "b1c4…", "name": "Danylo" }
 ```
-`name`: 1–32 characters, trimmed.
+`name`: 1–32 characters, trimmed. `clientId`: 1–64 characters (a UUID v4 in practice); it is never sent to other clients.
 
 #### `ping`
 See [§4](#4-clock-synchronization).

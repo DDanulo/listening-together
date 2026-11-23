@@ -168,8 +168,12 @@ export type ServerMessage =
 export const CloseCode = {
   NORMAL: 1000,
   GOING_AWAY: 1001,
+  /** Sent by the client when it abandons a connection that looks dead. */
+  CLIENT_TIMEOUT: 4000,
   PROTOCOL_ERROR: 4400,
   ROOM_NOT_FOUND: 4404,
   ROOM_FULL: 4409,
+  /** A newer connection with the same clientId took over this member. */
+  REPLACED: 4410,
   RATE_LIMITED: 4429,
 } as const

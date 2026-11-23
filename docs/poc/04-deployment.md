@@ -60,7 +60,8 @@ One VM, one domain, same origin for the page, API and WebSocket (no CORS issues)
 | Members per room | 20 |
 | Tracks per room | 30 |
 | Total storage | 3 GB |
-| Idle room deleted after | 10 min without members |
+| Idle room deleted after | 10 min without connected members |
+| Disconnected member kept for reconnecting (`app.rooms.reconnect-grace-ms`) | 60 s (counts toward the member limit meanwhile) |
 | WebSocket messages per connection | bursts of 100, 20/s sustained |
 | Time to send `hello` | 10 s |
 

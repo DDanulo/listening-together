@@ -36,7 +36,9 @@ public class RoomSocketHandler extends TextWebSocketHandler {
 	public static final CloseStatus PROTOCOL_ERROR = new CloseStatus(4400, "Protocol error");
 	public static final CloseStatus ROOM_FULL = new CloseStatus(4409, "Room is full");
 	public static final CloseStatus RATE_LIMITED = new CloseStatus(4429, "Too many messages");
+	public static final CloseStatus REPLACED = new CloseStatus(4410, "Replaced by a newer connection");
 	static final int MAX_NAME_LENGTH = 32;
+	static final int MAX_CLIENT_ID_LENGTH = 64;
 
 	private static final Logger log = LoggerFactory.getLogger(RoomSocketHandler.class);
 	private static final String OUT = "out";
@@ -154,14 +156,24 @@ public class RoomSocketHandler extends TextWebSocketHandler {
 			sendError(out, ErrorCode.BAD_MESSAGE, "Name must be 1–" + MAX_NAME_LENGTH + " characters", "hello");
 			return;
 		}
+		String clientId = hello.clientId() == null ? "" : hello.clientId();
+		if (clientId.isBlank() || clientId.length() > MAX_CLIENT_ID_LENGTH) {
+			sendError(out, ErrorCode.BAD_MESSAGE, "clientId must be 1–" + MAX_CLIENT_ID_LENGTH + " characters",
+					"hello");
+			return;
+		}
 		try {
-			MemberState member = roomService.join(room, out, name);
-			session.getAttributes().put(MEMBER, member);
+			RoomService.Joined joined = roomService.join(room, out, name, clientId);
+			session.getAttributes().put(MEMBER, joined.member());
+			if (joined.replaced() != null) {
+				// The client tells a stale socket of its own from a duplicated tab by this code (protocol §3.3).
+				close(joined.replaced(), REPLACED);
+			}
 			// If the connection closed while joining, afterConnectionClosed may have run before MEMBER was set and
-			// skipped leave(): without this, a ghost member would keep the room (and its files) alive forever.
-			// leave() is idempotent, so a double call is harmless.
+			// skipped leave(): without this, a ghost member would stay connected and keep the room (and its files)
+			// alive forever. leave() is idempotent, so a double call is harmless.
 			if (!session.isOpen()) {
-				roomService.leave(room, member);
+				roomService.leave(room, joined.member(), out, false);
 			}
 		}
 		catch (CommandException e) {
@@ -184,7 +196,9 @@ public class RoomSocketHandler extends TextWebSocketHandler {
 		Room room = (Room) session.getAttributes().get(ROOM);
 		MemberState member = (MemberState) session.getAttributes().get(MEMBER);
 		if (room != null && member != null) {
-			roomService.leave(room, member);
+			// 1000 = the user left on purpose; anything else (network loss, tab closed, reload) may come back.
+			boolean intentional = status.getCode() == CloseStatus.NORMAL.getCode();
+			roomService.leave(room, member, (WebSocketSession) session.getAttributes().get(OUT), intentional);
 		}
 	}
 

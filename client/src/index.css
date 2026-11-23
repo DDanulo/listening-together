@@ -7,6 +7,7 @@
   --accent: #5b3fd9;
   --accent-text: #ffffff;
   --error: #c62828;
+  --warning: #a15c00;
   --current: #efeafd;
   font-family: system-ui, sans-serif;
   color: var(--text);
@@ -23,6 +24,7 @@
     --accent: #8f78ff;
     --accent-text: #0d0d12;
     --error: #ff6b6b;
+    --warning: #ffb74d;
     --current: #2a2440;
   }
 }
@@ -56,6 +58,8 @@ code { font-size: 0.95em; }
 .muted { color: var(--muted); font-size: 0.9rem; }
 .error { color: var(--error); }
 .banner { display: flex; gap: 8px; align-items: center; }
+.warning { color: var(--warning); }
+.offline { opacity: 0.5; }
 .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 button, .button {

@@ -2,7 +2,10 @@ import type { Command, DownloadStatus, Member, PlaybackState, Track } from '../p
 import type { TimestampSource } from '../audio/engine'
 
 export interface RoomView {
-  connection: 'idle' | 'connecting' | 'open' | 'closed'
+  /** 'reconnecting': the connection dropped after joining; audio keeps playing meanwhile. */
+  connection: 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
+  /** While reconnecting: attempts so far and when (performance.now()) the next one starts. */
+  reconnect: { attempt: number; retryAt: number } | null
   roomId: string
   /** memberId after welcome */
   me: string | null

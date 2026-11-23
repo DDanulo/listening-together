@@ -34,7 +34,8 @@ export function RoomPage({ roomId }: { roomId: string }) {
   }
   if (exists === 'error') return <main className="page"><p className="error">Could not reach the server.</p></main>
   if (view.me === null) {
-    return <JoinForm onJoin={(name) => session.join(name)} connecting={view.connection === 'connecting'}
+    return <JoinForm onJoin={(name) => session.join(name)}
+      connecting={view.connection === 'connecting' || view.connection === 'reconnecting'}
       error={view.error?.message ?? null} />
   }
   return <RoomScreen session={session} view={view} />

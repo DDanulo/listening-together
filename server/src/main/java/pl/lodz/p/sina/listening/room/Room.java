@@ -25,7 +25,7 @@ public final class Room {
 	ScheduledFuture<?> autoAdvanceTask;
 	ScheduledFuture<?> pendingMembersBroadcast;
 	double lastMembersBroadcastAt = Double.NEGATIVE_INFINITY;
-	/** Server time since which the room has had no members (creation time if nobody joined yet). */
+	/** Server time since which the room has had no connected members (creation time if nobody joined yet). */
 	double emptySince;
 	/** Set when the room is deleted; late joins and uploads to it are refused. */
 	boolean closed;
@@ -57,6 +57,14 @@ public final class Room {
 
 	List<Track> tracks() {
 		return queue.stream().map(StoredTrack::track).toList();
+	}
+
+	Optional<MemberState> findByClientId(String clientId) {
+		return members.values().stream().filter(m -> m.clientId().equals(clientId)).findFirst();
+	}
+
+	boolean hasConnectedMembers() {
+		return members.values().stream().anyMatch(MemberState::connected);
 	}
 
 	List<Member> memberViews() {

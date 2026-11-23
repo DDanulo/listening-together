@@ -49,14 +49,19 @@ export class MetronomeSession {
       message: (message, receivedAt) => {
         if (message.type === 'welcome') {
           this.connectionState = 'open'
-          this.clock = new ClockSync((ping) => this.connection?.send(ping), () => {})
+          this.clock ??= new ClockSync({
+            send: (ping) => this.connection?.send(ping),
+            update: () => {},
+            dead: () => this.connection?.reconnect('No pong'),
+          })
           this.clock.start()
         } else if (message.type === 'pong') {
           this.clock?.handlePong(message, receivedAt)
         }
       },
-      close: () => {
-        this.connectionState = 'closed'
+      close: (_code, _reason, retryInMs) => {
+        this.clock?.stop()
+        this.connectionState = retryInMs === null ? 'closed' : 'connecting'
       },
     })
     this.ticker = window.setInterval(() => this.tick(), TICK_MS)
