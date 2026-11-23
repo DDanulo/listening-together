@@ -277,7 +277,10 @@ function SyncPanel({ session, view }: Props) {
     ['Best RTT', formatMs(view.sync.bestRttMs, 2)],
     ['Samples', String(view.sync.samples)],
     ['Clock check (A1)', formatMs(clockCheck, 2)],
-    ['Timing error', formatMs(view.sync.driftMs, 1)],
+    ['Position error', formatMs(view.sync.driftMs, 1)],
+    ['Drift correction', view.sync.driftStrategy],
+    ['Playback rate', view.sync.playbackRate === 1 ? '1 (normal)'
+      : `${view.sync.playbackRate.toFixed(4)} (${view.sync.playbackRate > 1 ? 'catching up' : 'slowing down'})`],
     ['Resyncs', String(view.sync.resyncs)],
     ['Last resync', view.sync.lastResync
       ? `${formatMs(view.sync.lastResync.errorMs, 0)} (${view.sync.lastResync.timestampSource})` : '–'],

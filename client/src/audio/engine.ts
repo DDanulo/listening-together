@@ -1,10 +1,13 @@
 import type { Plan, Segment } from '../sync/playback'
-import { type AudioClockPair, audioToClientTime, clientToAudioTime, isFresh } from './timeMapping'
+import {
+  type AudioClockPair, MIN_START_LEAD_S, type RateAnchor, catchUpStart, clientToAudioTime, isFresh, positionAtAudioTime,
+  positionErrorMs,
+} from './timeMapping'
 
 interface ActiveSegment extends Segment {
   source: AudioBufferSourceNode
-  /** AudioContext time (s) at which `position` plays. */
-  audioStart: number
+  /** Playback-rate history (drift nudging), oldest first; the first anchor is the start. */
+  anchors: RateAnchor[]
 }
 
 export type TimestampSource = 'outputTimestamp' | 'currentTime'
@@ -100,23 +103,63 @@ export class AudioEngine {
     const source = this.context.createBufferSource()
     source.buffer = buffer
     source.connect(this.gain)
-    const when = audioTime(plan.start.startAt)
-    source.start(when, plan.start.position / 1000)
-    // A start time in the past plays immediately, from the given offset.
-    const segment: ActiveSegment = { ...plan.start, stopAt: null, source, audioStart: Math.max(when, this.context.currentTime) }
+    // The planner's margin is in server time; on the audio clock the start can still be in the past, because the
+    // output-timestamp mapping lags currentTime by the output latency.
+    const { when, position } = catchUpStart(audioTime(plan.start.startAt), plan.start.position,
+      this.context.currentTime + MIN_START_LEAD_S)
+    source.start(when, position / 1000)
+    const segment: ActiveSegment = {
+      ...plan.start,
+      stopAt: null,
+      source,
+      anchors: [{ audioTime: when, position, rate: 1 }],
+    }
     source.onended = () => this.remove(segment)
     this.active.push(segment)
     return true
   }
 
   /**
-   * How late the segment's audio comes out compared to when it should (ms, positive = late), measured with a
-   * fresh clock reading. Null if the segment isn't playing.
+   * How far the segment's audio is behind the server timeline (ms; negative = ahead), measured at the moment the
+   * sound leaves the speaker with a fresh clock reading. Null if the segment isn't playing.
+   *
+   * @param offset serverTime − clientTime
    */
-  timingErrorMs(segment: Segment, toClientTime: (serverTime: number) => number): number | null {
+  positionErrorMs(segment: Segment, offset: number): number | null {
     const active = this.find(segment)
-    if (!active) return null
-    return audioToClientTime(active.audioStart, this.clockPair()) - toClientTime(active.startAt)
+    return active ? positionErrorMs(active, active.anchors, this.clockPair(), offset) : null
+  }
+
+  rateOf(segment: Segment): number {
+    const anchors = this.find(segment)?.anchors
+    return anchors ? anchors[anchors.length - 1].rate : 1
+  }
+
+  /**
+   * Changes the playback speed of a segment from now on (drift nudging). The pitch changes along with it, which is
+   * why the caller keeps the rate within a fraction of a percent.
+   */
+  setRate(segment: Segment, rate: number): void {
+    const active = this.find(segment)
+    if (!active) return
+    const now = this.context.currentTime
+    active.source.playbackRate.setValueAtTime(rate, now)
+    active.anchors.push({ audioTime: now, position: positionAtAudioTime(active.anchors, now), rate })
+  }
+
+  /** Moves a segment's audio `ms` ahead (or behind, if negative) by playing at ±10 % speed for a moment. */
+  shift(segment: Segment, ms: number): void {
+    const active = this.find(segment)
+    if (!active || ms === 0) return
+    const start = this.context.currentTime + 0.05
+    // At ±10 % speed, the track moves 0.1 ms per ms against real time: `ms` takes 10 × ms = ms / 100 seconds.
+    const end = start + Math.abs(ms) / 100
+    const rate = this.rateOf(segment)
+    const fast = rate + (ms > 0 ? 0.1 : -0.1)
+    active.source.playbackRate.setValueAtTime(fast, start)
+    active.source.playbackRate.setValueAtTime(rate, end)
+    active.anchors.push({ audioTime: start, position: positionAtAudioTime(active.anchors, start), rate: fast })
+    active.anchors.push({ audioTime: end, position: positionAtAudioTime(active.anchors, end), rate })
   }
 
   /** Stops a segment immediately and forgets it (used before a resync restarts it). */

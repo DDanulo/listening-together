@@ -10,7 +10,7 @@ import {
   CloseCode,
   PROTOCOL_VERSION,
 } from '../protocol/types'
-import { needsResync } from '../sync/drift'
+import { type DriftStrategy, NUDGE_READINGS, decideCorrection } from '../sync/drift'
 import { type Segment, audiblePosition, expectedPosition, planTransition } from '../sync/playback'
 import { ApiError, readDurationMs, uploadTrack } from './api'
 import { clientId, resetClientId } from './clientId'
@@ -27,12 +27,18 @@ const EXPLAINED_CLOSES = new Set<number>([
 export interface SessionOptions {
   /** Ignore effectiveAt and act when messages arrive: the "before" baseline for the evaluation (?naive=1). */
   naive?: boolean
+  /** How timing errors of the playing audio are corrected (evaluation E3; ?drift=off|resync|nudge). */
+  drift?: DriftStrategy
 }
+
+/** Position errors kept per segment for the drift controller (it uses the last NUDGE_READINGS). */
+const MAX_READINGS = NUDGE_READINGS
 
 export class LiveRoomSession implements RoomSession {
   private view: RoomView
   private readonly listeners = new Set<() => void>()
   private readonly naive: boolean
+  private readonly driftStrategy: DriftStrategy
   private connection: Connection | null = null
   private engine: AudioEngine | null = null
   private clock: ClockSync | null = null
@@ -40,8 +46,9 @@ export class LiveRoomSession implements RoomSession {
   private timingTimer: number | undefined
   private driftMs: number | null = null
   private resyncs = 0
-  /** Last timing measurement, with the segment it belongs to: only readings of the same audio may confirm. */
-  private previousDrift: { segment: Segment; errorMs: number } | null = null
+  /** Recent position errors of the playing segment: only readings of the same audio may confirm each other. */
+  private readings: { segment: Segment; errorsMs: number[] } | null = null
+  private playbackRate = 1
   private lastResync: RoomView['sync']['lastResync'] = null
   private lastResyncAt = -Infinity
   private lastRev = -1
@@ -53,6 +60,7 @@ export class LiveRoomSession implements RoomSession {
 
   constructor(roomId: string, options: SessionOptions = {}) {
     this.naive = options.naive ?? false
+    this.driftStrategy = options.drift ?? 'nudge'
     this.view = {
       connection: 'idle',
       roomId,
@@ -62,7 +70,10 @@ export class LiveRoomSession implements RoomSession {
       playback: null,
       downloads: {},
       reconnect: null,
-      sync: { synced: false, offsetMs: null, bestRttMs: null, samples: 0, driftMs: null, resyncs: 0, lastResync: null },
+      sync: {
+        synced: false, offsetMs: null, bestRttMs: null, samples: 0, driftMs: null, resyncs: 0, lastResync: null,
+        driftStrategy: options.drift ?? 'nudge', playbackRate: 1,
+      },
       audio: { timestampSource: 'currentTime', outputLatencyMs: null },
       error: null,
     }
@@ -133,6 +144,16 @@ export class LiveRoomSession implements RoomSession {
     const audible = this.engine ? audiblePosition(this.engine.segments, now) : null
     const position = audible ?? (state.status === 'playing' ? expectedPosition(state, now) : state.position)
     return Math.min(duration, Math.max(0, position))
+  }
+
+  /**
+   * Development aid (verifying drift correction): shifts the playing audio by `ms` (positive = ahead) by briefly
+   * playing at ±10 % speed. The shift is a real timing error that the drift correction then has to remove.
+   */
+  debugShiftMs(ms: number): void {
+    const state = this.view.playback
+    const segment = this.engine?.segments.find((s) => s.rev === state?.rev && s.stopAt === null)
+    if (segment) this.engine?.shift(segment, ms)
   }
 
   dismissError(): void {
@@ -269,6 +290,8 @@ export class LiveRoomSession implements RoomSession {
         driftMs: this.driftMs,
         resyncs: this.resyncs,
         lastResync: this.lastResync,
+        driftStrategy: this.driftStrategy,
+        playbackRate: this.playbackRate,
       },
     })
   }
@@ -311,32 +334,47 @@ export class LiveRoomSession implements RoomSession {
   }
 
   /**
-   * Measures the timing error of the playing audio and restarts it at the right position when it's off, e.g.
-   * when the start was scheduled with a stale audio clock after the output had been idle (hard resync).
+   * Measures how far the playing audio is off the server timeline and corrects it with the drift strategy: by
+   * nudging the playback rate, or by restarting at the right position (hard resync). Errors come from the clock
+   * offset estimate improving, the audio clock running at a slightly different speed than the system clock, and
+   * starts scheduled with a stale audio clock after the output had been idle.
    */
   private checkTiming(): void {
     const engine = this.engine
     const state = this.view.playback
     const offset = this.clock?.estimator.offset()
     if (!engine || offset == null || state?.status !== 'playing') {
-      this.previousDrift = null
+      this.readings = null
       this.setDrift(null)
+      this.setPlaybackRate(1)
       return
     }
     const serverNow = performance.now() + offset
     // Only audio of the current state; a segment that is about to be stopped by a pending change is left alone.
     const segment = engine.segments.find((s) => s.rev === state.rev && s.startAt <= serverNow && s.stopAt === null)
-    const errorMs = segment ? engine.timingErrorMs(segment, (serverTime) => serverTime - offset) : null
+    const errorMs = segment ? engine.positionErrorMs(segment, offset) : null
     this.setDrift(errorMs)
-    const previous = segment && this.previousDrift?.segment === segment ? this.previousDrift.errorMs : null
-    this.previousDrift = segment && errorMs !== null ? { segment, errorMs } : null
-    if (segment && errorMs !== null && needsResync(errorMs, previous, performance.now() - this.lastResyncAt)) {
+    if (!segment || errorMs === null) {
+      this.readings = null
+      this.setPlaybackRate(1)
+      return
+    }
+    if (this.readings?.segment !== segment) this.readings = { segment, errorsMs: [] }
+    const errorsMs = this.readings.errorsMs
+    errorsMs.push(errorMs)
+    if (errorsMs.length > MAX_READINGS) errorsMs.shift()
+
+    const rate = engine.rateOf(segment)
+    const correction = decideCorrection(this.driftStrategy, errorsMs, rate, performance.now() - this.lastResyncAt)
+    if (correction.kind === 'rate') {
+      engine.setRate(segment, correction.rate)
+    } else if (correction.kind === 'resync') {
       this.lastResyncAt = performance.now()
       this.resyncs++
-      this.previousDrift = null
+      this.readings = null
       this.lastResync = { errorMs, timestampSource: engine.timestampSource }
       console.info(`Resync #${this.resyncs}: playback was ${errorMs.toFixed(1)} ms off`, {
-        previousErrorMs: previous,
+        previousErrorsMs: errorsMs.slice(0, -1),
         timestampSource: engine.timestampSource,
         outputLatencyMs: engine.outputLatencyMs(),
         baseLatencyMs: engine.context.baseLatency * 1000,
@@ -346,6 +384,14 @@ export class LiveRoomSession implements RoomSession {
       this.applyPlayback()
       this.updateSync()
     }
+    // A discarded segment reports rate 1, like the fresh one replacing it.
+    this.setPlaybackRate(engine.rateOf(segment))
+  }
+
+  private setPlaybackRate(rate: number): void {
+    if (rate === this.playbackRate) return
+    this.playbackRate = rate
+    this.updateSync()
   }
 
   private setDrift(driftMs: number | null): void {

@@ -1,5 +1,6 @@
 import type { Command, DownloadStatus, Member, PlaybackState, Track } from '../protocol/types'
 import type { TimestampSource } from '../audio/engine'
+import type { DriftStrategy } from '../sync/drift'
 
 export interface RoomView {
   /** 'reconnecting': the connection dropped after joining; audio keeps playing meanwhile. */
@@ -19,12 +20,15 @@ export interface RoomView {
     offsetMs: number | null
     bestRttMs: number | null
     samples: number
-    /** Timing error of the playing audio (ms, positive = behind); null when not playing. */
+    /** Position error of the playing audio (ms, positive = behind); null when not playing. */
     driftMs: number | null
-    /** How often playback was restarted to fix a timing error. */
+    /** How often playback was restarted to fix a timing error (hard resync). */
     resyncs: number
     /** Error that triggered the last resync, and the audio clock source used to measure it. */
     lastResync: { errorMs: number; timestampSource: TimestampSource } | null
+    driftStrategy: DriftStrategy
+    /** Playback rate of the playing audio: ≠ 1 while drift nudging corrects an error. */
+    playbackRate: number
   }
   audio: { timestampSource: TimestampSource; outputLatencyMs: number | null }
   error: { code: string; message: string } | null
