@@ -110,7 +110,13 @@ Same room, `delay0`, default switches. Change one thing per run, note what in th
 | `E4-wired-r1` | B through wired headphones, same position | 60 s |
 | `E4-safari-r1` | (if an iPhone/Mac is available) Safari as B | 60 s |
 
-Note the "Output latency" each device shows in "Sync status": Bluetooth usually reports a part of its latency or none, which the run will show as a constant offset.
+Note the "Output latency" each device shows in "Sync status": Bluetooth usually reports a part of its latency or none, which the run will show as a constant offset. Then:
+
+| Label | Setup | Duration |
+|---|---|---|
+| `E4-bluetooth-comp-r1` | As `E4-bluetooth-r1`, with B's **Output delay** (under the player) set to the offset `E4-bluetooth-r1` measured (Claude tells you the number, or raise it by ear until the clicks merge) | 60 s |
+
+Set the output delay back to 0 afterwards: it is remembered per device.
 
 ## E5: comparison with Beatsync (≈ 15 min)
 
