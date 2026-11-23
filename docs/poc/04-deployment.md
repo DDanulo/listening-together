@@ -41,8 +41,8 @@ One VM, one domain, same origin for the page, API and WebSocket (no CORS issues)
        }
    }
    ```
-6. **Deploy script** (`deploy.sh` in the repo, committed): build `server` (`./mvnw -q package -DskipTests`) and `client` (`npm run build`), copy the jar + `dist/` with `scp`/`rsync`, restart the service. GitLab CI is optional for later.
-7. **Logs:** the server's `logs/` directory lives on the VM. Document where it is, so the event logs can be downloaded for evaluation.
+6. **Deploy script:** `scripts/deploy.sh <ssh-key>` builds `server` and `client`, copies the jar and `dist/` to the VM (user `opc`, Oracle Linux), keeps a timestamped backup of the previous version, restarts `listening.service` and checks the API. The service runs the jar from `/opt/listening/server.jar`; Caddy serves the client from `/srv/listening/client`.
+7. **Logs:** the event logs for the evaluation are in `/var/lib/listening/logs/events-<date>.jsonl` on the VM.
 
 ## VM hardening (do this before the first deploy)
 - **Only ports 22, 80, 443** open, in both the VCN security list and the VM's iptables.
