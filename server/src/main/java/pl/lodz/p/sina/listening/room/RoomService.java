@@ -36,6 +36,7 @@ public class RoomService {
 
 	static final double MEMBERS_BROADCAST_INTERVAL_MS = 2000;
 	static final long SWEEP_INTERVAL_SECONDS = 30;
+	static final int MAX_LABEL_LENGTH = 16;
 
 	private static final Logger log = LoggerFactory.getLogger(RoomService.class);
 
@@ -253,11 +254,26 @@ public class RoomService {
 				"offsetMs", stats.offsetMs(),
 				"rttMs", stats.rttMs(),
 				"driftMs", stats.driftMs(),
-				"outputLatencyMs", stats.outputLatencyMs()));
+				"outputLatencyMs", stats.outputLatencyMs(),
+				"clockStrategy", label(stats.clockStrategy()),
+				"driftStrategy", label(stats.driftStrategy()),
+				"naive", stats.naive(),
+				"playbackRate", stats.playbackRate(),
+				"resyncs", stats.resyncs(),
+				"skewPpm", stats.skewPpm(),
+				"syncedAfterMs", stats.syncedAfterMs(),
+				"reconnects", stats.reconnects(),
+				"lastOutageMs", stats.lastOutageMs(),
+				"evalChannel", label(stats.evalChannel())));
 		synchronized (room) {
 			member.setSync(new MemberSync(stats.offsetMs(), stats.rttMs(), stats.driftMs()));
 			broadcastMembersThrottled(room);
 		}
+	}
+
+	/** Client-chosen strings end up in the log: keep them short. */
+	private static String label(String value) {
+		return value == null || value.length() <= MAX_LABEL_LENGTH ? value : value.substring(0, MAX_LABEL_LENGTH);
 	}
 
 	private void setPlayback(Room room, PlaybackState state, ServerMessage.Cause cause) {

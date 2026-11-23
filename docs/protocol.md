@@ -242,6 +242,21 @@ Sync quality report, sent every **2 s** while connected. Used for the UI and log
 | `driftMs` | `expected - actual` track position (positive = this client is behind); `null` when not playing |
 | `outputLatencyMs` | Audio output latency used for correction; `null` if unknown |
 
+Optional fields for the evaluation (`eval/`). The server only logs them; clients may omit any of them:
+
+| Field | Meaning |
+|---|---|
+| `clockStrategy` | Clock-sync strategy in use: `"single"`, `"best"`, `"periodic"` or `"regression"` (experiment E2) |
+| `driftStrategy` | Drift correction in use: `"off"`, `"resync"` or `"nudge"` (experiment E3) |
+| `naive` | `true` for the "play when the message arrives" baseline that ignores `effectiveAt` |
+| `playbackRate` | Current playback rate of the playing audio (`1` = normal speed; ≠ 1 while nudging) |
+| `resyncs` | Number of hard resyncs (playback restarts) since joining |
+| `skewPpm` | Estimated drift rate between the client and server clocks (`regression` only), else `null` |
+| `syncedAfterMs` | Time from the first `welcome` to the first usable clock estimate; `null` until then |
+| `reconnects` | Number of successful reconnects since joining |
+| `lastOutageMs` | Duration of the last outage, measured by the client: from the last message received before the connection was lost to the `welcome` after reconnecting; `null` if there was none. The server cannot measure this itself, because it may not notice a half-open connection |
+| `evalChannel` | Channel of the evaluation click track this device plays (`"1"`, `"2"`, `"3"`, `"all"`), or `null` |
+
 ### 6.2 Server → client
 
 #### `welcome`

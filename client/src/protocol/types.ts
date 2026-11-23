@@ -88,7 +88,21 @@ export interface StatsMessage {
   rttMs: number
   driftMs: number | null
   outputLatencyMs: number | null
+  // Optional, for the evaluation (protocol §6.1): logged by the server.
+  clockStrategy?: 'single' | 'best' | 'periodic' | 'regression'
+  driftStrategy?: 'off' | 'resync' | 'nudge'
+  naive?: boolean
+  playbackRate?: number
+  resyncs?: number
+  skewPpm?: number | null
+  syncedAfterMs?: number | null
+  reconnects?: number
+  lastOutageMs?: number | null
+  evalChannel?: EvalChannel | null
 }
+
+/** Channel of the multichannel evaluation click track a device plays (eval/README.md). */
+export type EvalChannel = '1' | '2' | '3' | 'all'
 
 export type ClientMessage =
   | HelloMessage

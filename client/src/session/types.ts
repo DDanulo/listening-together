@@ -1,5 +1,6 @@
-import type { Command, DownloadStatus, Member, PlaybackState, Track } from '../protocol/types'
+import type { Command, DownloadStatus, EvalChannel, Member, PlaybackState, Track } from '../protocol/types'
 import type { TimestampSource } from '../audio/engine'
+import type { ClockStrategy } from '../sync/clock'
 import type { DriftStrategy } from '../sync/drift'
 
 export interface RoomView {
@@ -29,7 +30,13 @@ export interface RoomView {
     driftStrategy: DriftStrategy
     /** Playback rate of the playing audio: ≠ 1 while drift nudging corrects an error. */
     playbackRate: number
+    clockStrategy: ClockStrategy
+    /** Successful reconnects since joining, and the client-measured duration of the last outage. */
+    reconnects: number
+    lastOutageMs: number | null
   }
+  /** Evaluation: the click-track channel this device plays, or null for normal playback. */
+  evalChannel: EvalChannel | null
   audio: { timestampSource: TimestampSource; outputLatencyMs: number | null }
   error: { code: string; message: string } | null
 }

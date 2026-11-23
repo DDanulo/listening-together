@@ -1,6 +1,6 @@
 import { looksDead } from '../net/reconnect'
 import type { PingMessage, PongMessage } from '../protocol/types'
-import { ClockEstimator, computeSample } from '../sync/clock'
+import { ClockEstimator, type ClockStrategy, computeSample } from '../sync/clock'
 
 const BURST_SIZE = 10
 const BURST_SPACING_MS = 50
@@ -20,7 +20,7 @@ export interface ClockSyncEvents {
  * connections: the offset belongs to the two clocks, so after a reconnect the old samples still apply.
  */
 export class ClockSync {
-  readonly estimator = new ClockEstimator()
+  readonly estimator: ClockEstimator
   private readonly events: ClockSyncEvents
   private seq = 0
   private timeouts: number[] = []
@@ -28,8 +28,9 @@ export class ClockSync {
   /** Client time of the oldest ping sent since the last pong (liveness check). */
   private oldestUnansweredPingAt: number | null = null
 
-  constructor(events: ClockSyncEvents) {
+  constructor(events: ClockSyncEvents, strategy: ClockStrategy = 'periodic') {
     this.events = events
+    this.estimator = new ClockEstimator(strategy)
   }
 
   /** Starts pinging on a fresh connection. */
@@ -60,10 +61,16 @@ export class ClockSync {
     this.events.update()
   }
 
+  /** Current serverTime − clientTime estimate, or null before the first sample. */
+  offset(): number | null {
+    return this.estimator.offset(performance.now())
+  }
+
   /** Current server time estimate, or null before the first sample. */
   serverNow(): number | null {
-    const offset = this.estimator.offset()
-    return offset === null ? null : performance.now() + offset
+    const now = performance.now()
+    const offset = this.estimator.offset(now)
+    return offset === null ? null : now + offset
   }
 
   private burst(count: number): void {

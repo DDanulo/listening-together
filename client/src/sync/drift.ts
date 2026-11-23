@@ -16,10 +16,10 @@ export const RESYNC_THRESHOLD_MS = 20
 /** Minimum time between resyncs, so a noisy measurement can't cause a restart loop. */
 export const RESYNC_COOLDOWN_MS = 3_000
 
-/** `nudge`: errors below this are left alone (measurement noise is a few ms). */
-export const NUDGE_START_MS = 5
-/** `nudge`: once nudging, keep going until the error is this small (hysteresis, so it doesn't flap at 5 ms). */
-export const NUDGE_STOP_MS = 2
+/** `nudge`: errors below this are left alone. */
+export const NUDGE_START_MS = 3
+/** `nudge`: once nudging, keep going until the error is this small (hysteresis, so it doesn't flap). */
+export const NUDGE_STOP_MS = 1
 /** `nudge`: above this, nudging would take too long (50 ms at the max rate ≈ 17 s): restart instead. */
 export const NUDGE_MAX_ERROR_MS = 50
 /** `nudge`: the rate is chosen to remove the error in about this time (a proportional controller). */
@@ -30,11 +30,21 @@ export const NUDGE_CORRECTION_TIME_MS = 10_000
  */
 export const NUDGE_MAX_RATE_DEVIATION = 0.003
 /**
- * Readings combined (median) per decision. The output clock is read in steps of the audio output's buffer, so
- * single readings jump by a few ms (seen: ±3 ms on Chrome/Linux); a median of 5 keeps that noise from moving the
- * rate, and still reacts within 3 s to a real error.
+ * `nudge`: readings averaged per decision. A single reading is noisy (the output clock is read in steps of the audio
+ * output's buffer: std ≈ 1.5 ms on Chrome/Linux); the trimmed mean of 8 gets that to ≈ 0.5 ms.
  */
-export const NUDGE_READINGS = 5
+export const NUDGE_READINGS = 8
+
+/** One timing measurement of the playing segment. */
+export interface Reading {
+  /** Position error when it was measured. */
+  errorMs: number
+  /**
+   * How far nudging had moved the audio (ms of track gained, ahead of normal speed) up to that moment. Knowing it,
+   * old readings can be projected to now, so averaging them adds no lag.
+   */
+  nudgedMs: number
+}
 
 export type Correction = { kind: 'none' } | { kind: 'rate'; rate: number } | { kind: 'resync' }
 
@@ -60,29 +70,47 @@ export function needsResync(
 }
 
 /**
+ * The current position error from recent readings: each is projected to now by taking out the nudging done since
+ * it was measured, then averaged without the extremes. Null without readings.
+ *
+ * @param nudgedNowMs `Reading.nudgedMs` as of now
+ */
+export function estimateErrorMs(readings: readonly Reading[], nudgedNowMs: number): number | null {
+  const recent = readings.slice(-NUDGE_READINGS)
+  if (recent.length === 0) return null
+  // Nudging ahead by n ms reduces the error by n ms.
+  const projected = recent.map((r) => r.errorMs - (nudgedNowMs - r.nudgedMs)).sort((a, b) => a - b)
+  const trimmed = projected.length >= 5 ? projected.slice(1, -1) : projected
+  return trimmed.reduce((sum, e) => sum + e, 0) / trimmed.length
+}
+
+/**
  * Decides what to do about the playing segment's timing.
  *
- * @param readings position errors of the current segment since its start or last resync, oldest first
+ * @param readings measurements of the current segment since its start or last resync, oldest first
  * @param currentRate the segment's playback rate now (1 = normal speed)
+ * @param nudgedNowMs how far nudging has moved the segment's audio so far (see `Reading.nudgedMs`)
  * @param msSinceLastResync time since the previous resync (Infinity if none)
  */
 export function decideCorrection(
   strategy: DriftStrategy,
-  readings: readonly number[],
+  readings: readonly Reading[],
   currentRate: number,
+  nudgedNowMs: number,
   msSinceLastResync: number,
 ): Correction {
   if (strategy === 'off' || readings.length === 0) return NONE
-  const latest = readings[readings.length - 1]
-  const previous = readings.length > 1 ? readings[readings.length - 2] : null
+  const latest = readings[readings.length - 1].errorMs
+  const previous = readings.length > 1 ? readings[readings.length - 2].errorMs : null
 
   if (strategy === 'resync') {
     return needsResync(latest, previous, msSinceLastResync) ? { kind: 'resync' } : NONE
   }
 
   if (needsResync(latest, previous, msSinceLastResync, NUDGE_MAX_ERROR_MS)) return { kind: 'resync' }
-  if (readings.length < 2) return NONE
-  const error = median(readings.slice(-NUDGE_READINGS))
+  // A few readings before the first decision: one or two can't be told apart from noise.
+  if (readings.length < 3) return NONE
+  const error = estimateErrorMs(readings, nudgedNowMs) as number
   const nudging = currentRate !== 1
   if (Math.abs(error) < (nudging ? NUDGE_STOP_MS : NUDGE_START_MS)) {
     return nudging ? { kind: 'rate', rate: 1 } : NONE
@@ -98,10 +126,4 @@ export function nudgeRate(errorMs: number): number {
   const clamped = Math.max(-NUDGE_MAX_RATE_DEVIATION, Math.min(NUDGE_MAX_RATE_DEVIATION, deviation))
   // Rounded so repeated decisions on similar errors produce the same value.
   return Math.round((1 + clamped) * 1e5) / 1e5
-}
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }

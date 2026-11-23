@@ -59,6 +59,19 @@ These rules are easy to break and break sync silently. Follow them everywhere.
 7. **Disconnect ≠ stop.** Audio is local; keep playing on the last known state while reconnecting.
 8. On the server, take `t1` first thing on receiving `ping` and `t2` right before sending `pong`. Don't put work between them.
 
+## Evaluation switches
+
+Room URLs accept switches for the experiments (`client/src/ui/experiment.ts`); unknown values fall back to the defaults:
+
+| Switch | Values (default first) | Experiment |
+|---|---|---|
+| `clock` | `periodic`, `single`, `best`, `regression` | E2: which ping samples the offset uses (`sync/clock.ts`) |
+| `drift` | `nudge`, `resync`, `off` | E3: drift correction (`sync/drift.ts`) |
+| `naive` | present = on | Baseline that ignores `effectiveAt` |
+| `evalChannel` | `1`, `2`, `3`, `all` | Plays one channel of the click track (`eval/tracks/`), to tell devices apart in one recording |
+
+All of them are reported in `stats` and end up in the server's event log. In development builds, `window.__session` exposes the session; `__session.debugShiftMs(15)` moves playback 15 ms ahead as a real timing error, to watch drift correction remove it.
+
 ## Protocol changes
 
 `docs/protocol.md` is the contract. To change it:

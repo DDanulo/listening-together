@@ -278,6 +278,7 @@ function SyncPanel({ session, view }: Props) {
     ['Samples', String(view.sync.samples)],
     ['Clock check (A1)', formatMs(clockCheck, 2)],
     ['Position error', formatMs(view.sync.driftMs, 1)],
+    ['Clock strategy', view.sync.clockStrategy],
     ['Drift correction', view.sync.driftStrategy],
     ['Playback rate', view.sync.playbackRate === 1 ? '1 (normal)'
       : `${view.sync.playbackRate.toFixed(4)} (${view.sync.playbackRate > 1 ? 'catching up' : 'slowing down'})`],
@@ -288,6 +289,9 @@ function SyncPanel({ session, view }: Props) {
     ['Next change in', untilEffective !== null && untilEffective > 0 ? formatMs(untilEffective, 0) : '–'],
     ['Timestamp source', view.audio.timestampSource],
     ['Output latency', formatMs(view.audio.outputLatencyMs, 1)],
+    ['Reconnects', view.sync.reconnects === 0 ? '0'
+      : `${view.sync.reconnects} (last outage ${formatMs(view.sync.lastOutageMs, 0)})`],
+    ['Eval channel', view.evalChannel ?? '–'],
   ]
   return (
     <details className="card" open>
