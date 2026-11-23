@@ -37,7 +37,8 @@ export interface RoomView {
   }
   /** Evaluation: the click-track channel this device plays, or null for normal playback. */
   evalChannel: EvalChannel | null
-  audio: { timestampSource: TimestampSource; outputLatencyMs: number | null }
+  /** outputDelayMs: extra output latency set by the listener (Bluetooth), on top of what the browser reports. */
+  audio: { timestampSource: TimestampSource; outputLatencyMs: number | null; outputDelayMs: number }
   error: { code: string; message: string } | null
 }
 
@@ -52,6 +53,8 @@ export interface RoomSession {
   uploadTrack(file: File): Promise<void>
   /** 0..1, local only. */
   setVolume(volume: number): void
+  /** Local only: plays this much earlier to make up for output latency the browser doesn't report (Bluetooth). */
+  setOutputDelayMs(delayMs: number): void
   /** Live track position for animation frames (not part of the snapshot). */
   getPositionMs(): number | null
   /** Current server time estimate, e.g. for countdowns to effectiveAt. */

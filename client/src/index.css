@@ -60,6 +60,7 @@ code { font-size: 0.95em; }
 .banner { display: flex; gap: 8px; align-items: center; }
 .warning { color: var(--warning); }
 .offline { opacity: 0.5; }
+.delay { width: 5em; }
 .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 button, .button {

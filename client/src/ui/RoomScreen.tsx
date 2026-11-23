@@ -105,6 +105,12 @@ function Player({ session, view }: Props) {
           <input type="range" min={0} max={1} step={0.05} value={volume} onChange={changeVolume} />
         </label>
       </div>
+      <label className="row muted" title="Bluetooth headphones delay the sound by 100–300 ms without telling the browser">
+        Output delay
+        <input type="number" className="delay" min={0} max={500} step={10} value={view.audio.outputDelayMs}
+          onChange={(e) => session.setOutputDelayMs(Number(e.target.value))} />
+        ms · raise it if your headphones sound behind the others
+      </label>
       {!view.sync.synced && <p className="muted">Synchronizing clock…</p>}
     </section>
   )
@@ -289,6 +295,7 @@ function SyncPanel({ session, view }: Props) {
     ['Next change in', untilEffective !== null && untilEffective > 0 ? formatMs(untilEffective, 0) : '–'],
     ['Timestamp source', view.audio.timestampSource],
     ['Output latency', formatMs(view.audio.outputLatencyMs, 1)],
+    ['Output delay (manual)', formatMs(view.audio.outputDelayMs, 0)],
     ['Reconnects', view.sync.reconnects === 0 ? '0'
       : `${view.sync.reconnects} (last outage ${formatMs(view.sync.lastOutageMs, 0)})`],
     ['Eval channel', view.evalChannel ?? '–'],

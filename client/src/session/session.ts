@@ -37,6 +37,20 @@ export interface SessionOptions {
   evalChannel?: EvalChannel
 }
 
+const OUTPUT_DELAY_KEY = 'listening-together.outputDelayMs'
+/** Bluetooth adds up to ~300 ms; more than this is a mistake. */
+export const MAX_OUTPUT_DELAY_MS = 500
+
+/** The output delay stays with the device (localStorage): it belongs to its headphones, not to a room. */
+function loadOutputDelayMs(): number {
+  try {
+    const value = Number(localStorage.getItem(OUTPUT_DELAY_KEY))
+    return Number.isFinite(value) ? Math.min(MAX_OUTPUT_DELAY_MS, Math.max(0, value)) : 0
+  } catch {
+    return 0
+  }
+}
+
 /** Readings kept per segment for the drift controller (it uses the last NUDGE_READINGS). */
 const MAX_READINGS = NUDGE_READINGS
 
@@ -55,6 +69,8 @@ export class LiveRoomSession implements RoomSession {
   private outageStartedAt: number | null = null
   private lastOutageMs: number | null = null
   private reconnects = 0
+  /** Output latency the browser doesn't report (e.g. Bluetooth), set by the listener; see setOutputDelayMs. */
+  private outputDelayMs = loadOutputDelayMs()
   private connection: Connection | null = null
   private engine: AudioEngine | null = null
   private clock: ClockSync | null = null
@@ -94,7 +110,7 @@ export class LiveRoomSession implements RoomSession {
         reconnects: 0, lastOutageMs: null,
       },
       evalChannel: options.evalChannel ?? null,
-      audio: { timestampSource: 'currentTime', outputLatencyMs: null },
+      audio: { timestampSource: 'currentTime', outputLatencyMs: null, outputDelayMs: loadOutputDelayMs() },
       error: null,
     }
   }
@@ -150,6 +166,27 @@ export class LiveRoomSession implements RoomSession {
 
   setVolume(volume: number): void {
     this.engine?.setVolume(volume)
+  }
+
+  setOutputDelayMs(delayMs: number): void {
+    const clamped = Math.min(MAX_OUTPUT_DELAY_MS, Math.max(0, Math.round(delayMs)))
+    if (clamped === this.outputDelayMs) return
+    this.outputDelayMs = clamped
+    try {
+      localStorage.setItem(OUTPUT_DELAY_KEY, String(clamped))
+    } catch {
+      // remembering it is only a convenience
+    }
+    this.update({ audio: { ...this.view.audio, outputDelayMs: clamped } })
+    // Restart what's playing at the new timing right away, instead of waiting for drift correction to move it.
+    const engine = this.engine
+    const state = this.view.playback
+    const segment = engine?.segments.find((s) => s.rev === state?.rev && s.stopAt === null)
+    if (engine && segment) {
+      engine.discard(segment)
+      this.readings = null
+      this.applyPlayback()
+    }
   }
 
   getServerTime(): number | null {
@@ -343,6 +380,7 @@ export class LiveRoomSession implements RoomSession {
       rttMs,
       driftMs: this.driftMs,
       outputLatencyMs: this.engine?.outputLatencyMs() ?? null,
+      outputDelayMs: this.outputDelayMs,
       clockStrategy: this.clockStrategy,
       driftStrategy: this.driftStrategy,
       naive: this.naive,
@@ -358,10 +396,20 @@ export class LiveRoomSession implements RoomSession {
 
   // ---------- playback ----------
 
+  /**
+   * The clock offset for scheduling and measuring audio. An output that adds `outputDelayMs` the browser doesn't know
+   * about (Bluetooth) is treated as a device running that much later: everything is scheduled that much earlier, and
+   * drift is measured against the shifted timeline, so the correction keeps it there.
+   */
+  private playbackOffset(): number | null {
+    const offset = this.clock?.offset()
+    return offset == null ? null : offset + this.outputDelayMs
+  }
+
   private applyPlayback(): void {
     const engine = this.engine
     const state = this.view.playback
-    const offset = this.clock?.offset()
+    const offset = this.playbackOffset()
     if (!engine || !state || !this.clock?.estimator.synced || offset == null) return
     this.pendingApply = false
 
@@ -376,7 +424,9 @@ export class LiveRoomSession implements RoomSession {
       this.decode(plan.start.trackId).then(() => this.applyPlayback(), () => {})
     }
     this.prepareUpcoming(state)
-    this.update({ audio: { timestampSource: engine.timestampSource, outputLatencyMs: engine.outputLatencyMs() } })
+    this.update({
+      audio: { ...this.view.audio, timestampSource: engine.timestampSource, outputLatencyMs: engine.outputLatencyMs() },
+    })
   }
 
   /**
@@ -388,7 +438,7 @@ export class LiveRoomSession implements RoomSession {
   private checkTiming(): void {
     const engine = this.engine
     const state = this.view.playback
-    const offset = this.clock?.offset()
+    const offset = this.playbackOffset()
     if (!engine || offset == null || state?.status !== 'playing') {
       this.readings = null
       this.setDrift(null)

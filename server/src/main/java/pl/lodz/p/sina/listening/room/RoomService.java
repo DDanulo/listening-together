@@ -255,6 +255,7 @@ public class RoomService {
 				"rttMs", stats.rttMs(),
 				"driftMs", stats.driftMs(),
 				"outputLatencyMs", stats.outputLatencyMs(),
+				"outputDelayMs", stats.outputDelayMs(),
 				"clockStrategy", label(stats.clockStrategy()),
 				"driftStrategy", label(stats.driftStrategy()),
 				"naive", stats.naive(),

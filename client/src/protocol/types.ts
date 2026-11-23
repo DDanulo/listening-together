@@ -89,6 +89,7 @@ export interface StatsMessage {
   driftMs: number | null
   outputLatencyMs: number | null
   // Optional, for the evaluation (protocol §6.1): logged by the server.
+  outputDelayMs?: number
   clockStrategy?: 'single' | 'best' | 'periodic' | 'regression'
   driftStrategy?: 'off' | 'resync' | 'nudge'
   naive?: boolean

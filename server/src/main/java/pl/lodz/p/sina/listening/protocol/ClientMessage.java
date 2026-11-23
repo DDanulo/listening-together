@@ -30,7 +30,8 @@ public sealed interface ClientMessage {
 	}
 
 	/** The fields after {@code outputLatencyMs} are optional and only logged, for the evaluation (protocol §6.1). */
-	record Stats(Double offsetMs, Double rttMs, Double driftMs, Double outputLatencyMs, String clockStrategy,
+	record Stats(Double offsetMs, Double rttMs, Double driftMs, Double outputLatencyMs, Double outputDelayMs,
+			String clockStrategy,
 			String driftStrategy, Boolean naive, Double playbackRate, Integer resyncs, Double skewPpm,
 			Double syncedAfterMs, Integer reconnects, Double lastOutageMs, String evalChannel) implements ClientMessage {
 	}

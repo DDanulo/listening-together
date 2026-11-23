@@ -246,6 +246,7 @@ Optional fields for the evaluation (`eval/`). The server only logs them; clients
 
 | Field | Meaning |
 |---|---|
+| `outputDelayMs` | Extra output latency the listener set manually (e.g. Bluetooth headphones), on top of `outputLatencyMs` |
 | `clockStrategy` | Clock-sync strategy in use: `"single"`, `"best"`, `"periodic"` or `"regression"` (experiment E2) |
 | `driftStrategy` | Drift correction in use: `"off"`, `"resync"` or `"nudge"` (experiment E3) |
 | `naive` | `true` for the "play when the message arrives" baseline that ignores `effectiveAt` |
