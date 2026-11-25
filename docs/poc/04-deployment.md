@@ -43,6 +43,7 @@ One VM, one domain, same origin for the page, API and WebSocket (no CORS issues)
    ```
 6. **Deploy script:** `scripts/deploy.sh <ssh-key>` builds `server` and `client`, copies the jar and `dist/` to the VM (user `opc`, Oracle Linux), keeps a timestamped backup of the previous version, restarts `listening.service` and checks the API. The service runs the jar from `/opt/listening/server.jar`; Caddy serves the client from `/srv/listening/client`.
 7. **Logs:** the event logs for the evaluation are in `/var/lib/listening/logs/events-<date>.jsonl` on the VM.
+8. **Shared VM (since 2026-11-25):** the VM also hosts another app (Finance Quest, `atlas-commerzbank.duckdns.org`) whose backend uses 8080. Listening Together therefore runs on **8081** (`SERVER_PORT=8081` in `/etc/listening/env`), and the Caddyfile has one site block per domain, each proxying to its own backend. Both services run at the same time.
 
 ## VM hardening (do this before the first deploy)
 - **Only ports 22, 80, 443** open, in both the VCN security list and the VM's iptables.
