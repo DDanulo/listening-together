@@ -18,8 +18,10 @@ logs/
 uploads/
 *.log
 
-# evaluation: raw recordings are large, commit only processed results
-eval/recordings/
+# evaluation: raw recordings are large and stay local; a session's trimmed recordings (eval/recordings/<date>/) are
+# committed with its results
+eval/recordings/*
+!eval/recordings/20*/
 
 # eval tooling virtualenv
 eval/.venv/

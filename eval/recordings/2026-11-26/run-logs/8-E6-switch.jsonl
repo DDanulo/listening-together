@@ -1,0 +1,5 @@
+{"event":"session-start","t":"2026-11-26T22:14:51.261"}
+{"event":"play","label":"E6-switch-r1","t":"2026-11-26T22:15:15.600","clumsy":"stop","pos":"0","bestRtt":"22.68 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 23 ms;","b_posError":"–","b_resyncs":"0","b_rate":"1 (normal)","b_clock":"periodic","b_drift":"nudge","b_tsSource":"outputTimestamp","b_outputLatency":"48.0 ms"}
+{"event":"window","label":"E6-switch-r1","t":"2026-11-26T22:15:29.255","seconds":120}
+{"event":"end","label":"E6-switch-r1","t":"2026-11-26T22:17:33.671","pos":"135100","bestRtt":"30.58 ms","posError":"0.9 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 31 ms;ready · RTT 23 ms;","b_posError":"-1.5 ms","b_resyncs":"0","b_rate":"1 (normal)","b_clock":"periodic","b_drift":"nudge","b_tsSource":"outputTimestamp","b_outputLatency":"48.0 ms"}
+{"event":"session-end","t":"2026-11-26T22:17:47.022"}

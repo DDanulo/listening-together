@@ -1,0 +1,14 @@
+{"event":"session-start","t":"2026-11-26T22:03:06.232"}
+{"event":"play","label":"E5-beatsync-r1","t":"2026-11-26T22:03:06.233"}
+{"event":"window","label":"E5-beatsync-r1","t":"2026-11-26T22:03:20.161","seconds":90}
+{"event":"end","label":"E5-beatsync-r1","t":"2026-11-26T22:04:53.766"}
+{"event":"play","label":"E5-beatsync-r2","t":"2026-11-26T22:05:09.023"}
+{"event":"window","label":"E5-beatsync-r2","t":"2026-11-26T22:05:22.928","seconds":90}
+{"event":"end","label":"E5-beatsync-r2","t":"2026-11-26T22:06:56.645"}
+{"event":"play","label":"E5-ours-nocomp-r1","t":"2026-11-26T22:07:36.290","aOutputDelay":0}
+{"event":"window","label":"E5-ours-nocomp-r1","t":"2026-11-26T22:07:48.054","seconds":90}
+{"event":"end","label":"E5-ours-nocomp-r1","t":"2026-11-26T22:09:22.570","a":"Best RTT: 23.18 ms Position error: 1.4 ms "}
+{"event":"play","label":"E5-ours-r1","t":"2026-11-26T22:09:51.329","aOutputDelay":94}
+{"event":"window","label":"E5-ours-r1","t":"2026-11-26T22:10:03.031","seconds":90}
+{"event":"end","label":"E5-ours-r1","t":"2026-11-26T22:11:37.577","a":"Best RTT: 23.48 ms Position error: -0.5 ms "}
+{"event":"session-end","t":"2026-11-26T22:11:50.081"}

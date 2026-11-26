@@ -1,0 +1,5 @@
+{"event":"session-start","t":"2026-11-26T20:22:06.977"}
+{"event":"play","label":"E1-naive-r1","t":"2026-11-26T20:22:23.121","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 75","pos":"0","bestRtt":"26.29 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 25 ms;ready · RTT 26 ms;"}
+{"event":"window","label":"E1-naive-r1","t":"2026-11-26T20:22:35.848","seconds":90}
+{"event":"end","label":"E1-naive-r1","t":"2026-11-26T20:24:08.338","pos":"101700","bestRtt":"197.68 ms","posError":"-2.3 ms","resyncs":"1","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 25 ms;ready · RTT 198 ms;"}
+{"event":"session-end","t":"2026-11-26T20:24:22.165"}

@@ -1,0 +1,5 @@
+{"event":"session-start","t":"2026-11-26T21:56:52.178"}
+{"event":"play","label":"E4-bluetooth-comp-r1","t":"2026-11-26T21:57:15.643","clumsy":"stop","pos":"0","bestRtt":"22.28 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 22 ms;ready · RTT 23 ms;","b_posError":"–","b_resyncs":"0","b_rate":"1 (normal)","b_clock":"periodic","b_drift":"nudge","b_tsSource":"outputTimestamp","b_outputLatency":"72.0 ms"}
+{"event":"window","label":"E4-bluetooth-comp-r1","t":"2026-11-26T21:57:27.839","seconds":60}
+{"event":"end","label":"E4-bluetooth-comp-r1","t":"2026-11-26T21:58:30.565","pos":"72900","bestRtt":"32.99 ms","posError":"1.2 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 33 ms;ready · RTT 24 ms;","b_posError":"-1.1 ms","b_resyncs":"0","b_rate":"1 (normal)","b_clock":"periodic","b_drift":"nudge","b_tsSource":"outputTimestamp","b_outputLatency":"72.0 ms"}
+{"event":"session-end","t":"2026-11-26T21:58:45.287"}
