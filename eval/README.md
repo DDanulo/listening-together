@@ -23,7 +23,8 @@ Besides recordings, every client reports its own measurements every 2 s (`stats`
 | `analysis/server_log.py` | Per-member summary of the server's event log |
 | `analysis/charts.py` | Charts (distribution per condition, error over time) and Markdown tables for the report |
 | `tests/` | Detector tests on synthetic recordings |
-| `results/` | Processed results and charts (raw recordings go to `recordings/`, which is not committed) |
+| `results/` | Processed results and charts; [`results/README.md`](results/README.md) describes the session and every file |
+| `recordings/<date>/` | A session's recordings, trimmed to the analysed windows (FLAC). Raw recordings stay local in `recordings/` |
 
 ## Setup
 
