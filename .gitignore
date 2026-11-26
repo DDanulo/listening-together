@@ -20,3 +20,8 @@ uploads/
 
 # evaluation: raw recordings are large, commit only processed results
 eval/recordings/
+
+# eval tooling virtualenv
+eval/.venv/
+__pycache__/
+.pytest_cache/

@@ -3,16 +3,19 @@ import { Connection, roomSocketUrl } from '../net/connection'
 import {
   type Command,
   type DownloadStatus,
+  type EvalChannel,
   type PlaybackState,
   type ServerMessage,
   type Track,
+  type WelcomeMessage,
   CloseCode,
   PROTOCOL_VERSION,
 } from '../protocol/types'
-import { needsResync } from '../sync/drift'
+import type { ClockStrategy } from '../sync/clock'
+import { type DriftStrategy, NUDGE_READINGS, type Reading, decideCorrection } from '../sync/drift'
 import { type Segment, audiblePosition, expectedPosition, planTransition } from '../sync/playback'
 import { ApiError, readDurationMs, uploadTrack } from './api'
-import { clientId } from './clientId'
+import { clientId, resetClientId } from './clientId'
 import { ClockSync } from './clockSync'
 import type { RoomSession, RoomView } from './types'
 
@@ -26,12 +29,48 @@ const EXPLAINED_CLOSES = new Set<number>([
 export interface SessionOptions {
   /** Ignore effectiveAt and act when messages arrive: the "before" baseline for the evaluation (?naive=1). */
   naive?: boolean
+  /** How timing errors of the playing audio are corrected (evaluation E3; ?drift=off|resync|nudge). */
+  drift?: DriftStrategy
+  /** Which ping samples the clock offset comes from (evaluation E2; ?clock=single|best|periodic|regression). */
+  clock?: ClockStrategy
+  /** Play only this channel of a multichannel track: tags the device in a one-microphone recording (?evalChannel=). */
+  evalChannel?: EvalChannel
 }
+
+const OUTPUT_DELAY_KEY = 'listening-together.outputDelayMs'
+/** Bluetooth adds up to ~300 ms; more than this is a mistake. */
+export const MAX_OUTPUT_DELAY_MS = 500
+
+/** The output delay stays with the device (localStorage): it belongs to its headphones, not to a room. */
+function loadOutputDelayMs(): number {
+  try {
+    const value = Number(localStorage.getItem(OUTPUT_DELAY_KEY))
+    return Number.isFinite(value) ? Math.min(MAX_OUTPUT_DELAY_MS, Math.max(0, value)) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** Readings kept per segment for the drift controller (it uses the last NUDGE_READINGS). */
+const MAX_READINGS = NUDGE_READINGS
 
 export class LiveRoomSession implements RoomSession {
   private view: RoomView
   private readonly listeners = new Set<() => void>()
   private readonly naive: boolean
+  private readonly driftStrategy: DriftStrategy
+  private readonly clockStrategy: ClockStrategy
+  private readonly evalChannel: EvalChannel | null
+  /** performance.now() of the first welcome, for the time to the first usable clock estimate. */
+  private firstWelcomeAt: number | null = null
+  private syncedAfterMs: number | null = null
+  /** performance.now() of the last message from the server: an outage starts there. */
+  private lastMessageAt: number | null = null
+  private outageStartedAt: number | null = null
+  private lastOutageMs: number | null = null
+  private reconnects = 0
+  /** Output latency the browser doesn't report (e.g. Bluetooth), set by the listener; see setOutputDelayMs. */
+  private outputDelayMs = loadOutputDelayMs()
   private connection: Connection | null = null
   private engine: AudioEngine | null = null
   private clock: ClockSync | null = null
@@ -39,8 +78,9 @@ export class LiveRoomSession implements RoomSession {
   private timingTimer: number | undefined
   private driftMs: number | null = null
   private resyncs = 0
-  /** Last timing measurement, with the segment it belongs to: only readings of the same audio may confirm. */
-  private previousDrift: { segment: Segment; errorMs: number } | null = null
+  /** Recent position errors of the playing segment: only readings of the same audio may confirm each other. */
+  private readings: { segment: Segment; list: Reading[] } | null = null
+  private playbackRate = 1
   private lastResync: RoomView['sync']['lastResync'] = null
   private lastResyncAt = -Infinity
   private lastRev = -1
@@ -52,6 +92,9 @@ export class LiveRoomSession implements RoomSession {
 
   constructor(roomId: string, options: SessionOptions = {}) {
     this.naive = options.naive ?? false
+    this.driftStrategy = options.drift ?? 'nudge'
+    this.clockStrategy = options.clock ?? 'periodic'
+    this.evalChannel = options.evalChannel ?? null
     this.view = {
       connection: 'idle',
       roomId,
@@ -60,8 +103,14 @@ export class LiveRoomSession implements RoomSession {
       queue: [],
       playback: null,
       downloads: {},
-      sync: { synced: false, offsetMs: null, bestRttMs: null, samples: 0, driftMs: null, resyncs: 0, lastResync: null },
-      audio: { timestampSource: 'currentTime', outputLatencyMs: null },
+      reconnect: null,
+      sync: {
+        synced: false, offsetMs: null, bestRttMs: null, samples: 0, driftMs: null, resyncs: 0, lastResync: null,
+        driftStrategy: options.drift ?? 'nudge', playbackRate: 1, clockStrategy: options.clock ?? 'periodic',
+        reconnects: 0, lastOutageMs: null,
+      },
+      evalChannel: options.evalChannel ?? null,
+      audio: { timestampSource: 'currentTime', outputLatencyMs: null, outputDelayMs: loadOutputDelayMs() },
       error: null,
     }
   }
@@ -79,15 +128,21 @@ export class LiveRoomSession implements RoomSession {
     window.clearInterval(this.timingTimer)
     this.engine?.close()
     // Created synchronously, still inside the click handler that called join().
-    this.engine = new AudioEngine()
+    this.engine = new AudioEngine(this.evalChannel)
     const unlocked = this.engine.unlock()
     // Keeps running while disconnected: audio is local and the last clock estimate stays valid (rule 7).
     this.timingTimer = window.setInterval(() => this.checkTiming(), TIMING_CHECK_INTERVAL_MS)
     this.update({ connection: 'connecting', error: null })
+    // One clock for the whole visit: it keeps its estimate across reconnects.
+    this.clock ??= new ClockSync({
+      send: (ping) => this.connection?.send(ping),
+      update: () => this.onClockUpdate(),
+      dead: () => this.connection?.reconnect('No answer to pings'),
+    }, this.clockStrategy)
     this.connection = new Connection(roomSocketUrl(this.view.roomId), {
       open: () => this.connection?.send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, clientId: clientId(), name }),
       message: (message, receivedAt) => this.handle(message, receivedAt),
-      close: (code, reason) => this.handleClose(code, reason),
+      close: (code, reason, retryInMs) => this.handleClose(code, reason, retryInMs),
     })
     await unlocked
   }
@@ -113,6 +168,27 @@ export class LiveRoomSession implements RoomSession {
     this.engine?.setVolume(volume)
   }
 
+  setOutputDelayMs(delayMs: number): void {
+    const clamped = Math.min(MAX_OUTPUT_DELAY_MS, Math.max(0, Math.round(delayMs)))
+    if (clamped === this.outputDelayMs) return
+    this.outputDelayMs = clamped
+    try {
+      localStorage.setItem(OUTPUT_DELAY_KEY, String(clamped))
+    } catch {
+      // remembering it is only a convenience
+    }
+    this.update({ audio: { ...this.view.audio, outputDelayMs: clamped } })
+    // Restart what's playing at the new timing right away, instead of waiting for drift correction to move it.
+    const engine = this.engine
+    const state = this.view.playback
+    const segment = engine?.segments.find((s) => s.rev === state?.rev && s.stopAt === null)
+    if (engine && segment) {
+      engine.discard(segment)
+      this.readings = null
+      this.applyPlayback()
+    }
+  }
+
   getServerTime(): number | null {
     return this.clock?.serverNow() ?? null
   }
@@ -125,6 +201,16 @@ export class LiveRoomSession implements RoomSession {
     const audible = this.engine ? audiblePosition(this.engine.segments, now) : null
     const position = audible ?? (state.status === 'playing' ? expectedPosition(state, now) : state.position)
     return Math.min(duration, Math.max(0, position))
+  }
+
+  /**
+   * Development aid (verifying drift correction): shifts the playing audio by `ms` (positive = ahead) by briefly
+   * playing at ±10 % speed. The shift is a real timing error that the drift correction then has to remove.
+   */
+  debugShiftMs(ms: number): void {
+    const state = this.view.playback
+    const segment = this.engine?.segments.find((s) => s.rev === state?.rev && s.stopAt === null)
+    if (segment) this.engine?.shift(segment, ms)
   }
 
   dismissError(): void {
@@ -144,22 +230,13 @@ export class LiveRoomSession implements RoomSession {
   // ---------- incoming messages ----------
 
   private handle(message: ServerMessage, receivedAt: number): void {
+    this.lastMessageAt = receivedAt
     switch (message.type) {
       case 'pong':
         this.clock?.handlePong(message, receivedAt)
         break
       case 'welcome':
-        this.lastRev = message.room.playback.rev
-        this.pendingApply = true
-        this.update({
-          connection: 'open',
-          me: message.memberId,
-          members: message.room.members,
-          queue: message.room.queue,
-          playback: message.room.playback,
-        })
-        this.startClockSync()
-        this.downloadQueue()
+        this.handleWelcome(message)
         break
       case 'members':
         this.update({ members: message.members })
@@ -187,10 +264,64 @@ export class LiveRoomSession implements RoomSession {
     }
   }
 
-  private handleClose(code: number, reason: string): void {
-    // Rule 7: audio is local and keeps playing; the PoC has no reconnect yet.
+  /** First join or a reconnect: the snapshot replaces what we knew, except for an older playback state. */
+  private handleWelcome(message: WelcomeMessage): void {
+    const reconnected = this.view.me !== null
+    this.firstWelcomeAt ??= performance.now()
+    if (reconnected && this.outageStartedAt !== null) {
+      this.reconnects++
+      this.lastOutageMs = performance.now() - this.outageStartedAt
+      console.info(`Reconnected after an outage of ${this.lastOutageMs.toFixed(0)} ms`)
+    }
+    this.outageStartedAt = null
+    const { playback } = message.room
+    // Rule 5 also across reconnects: a state we already applied (or a newer one) must not be applied again.
+    const newer = playback.rev > this.lastRev
+    if (newer) {
+      this.lastRev = playback.rev
+      this.pendingApply = true
+    }
+    this.update({
+      connection: 'open',
+      reconnect: null,
+      me: message.memberId,
+      members: message.room.members,
+      queue: message.room.queue,
+      ...(newer ? { playback } : {}),
+      // A disconnect error is resolved now; anything else stays on screen.
+      error: this.view.error?.code === 'DISCONNECTED' ? null : this.view.error,
+    })
+    this.startClockSync()
+    this.forgetRemovedTracks()
+    if (reconnected) {
+      // trackStatus messages sent while the socket was down were lost.
+      for (const [trackId, status] of Object.entries(this.view.downloads)) {
+        this.connection?.send({ type: 'trackStatus', trackId, status })
+      }
+      // The clock is still synced: apply a state that changed while we were away right now.
+      if (this.pendingApply) this.applyPlayback()
+    }
+    this.downloadQueue()
+    if (this.view.playback) this.prepareUpcoming(this.view.playback)
+  }
+
+  private handleClose(code: number, reason: string, retryInMs: number | null): void {
+    // Rule 7: audio is local and keeps playing on the last state and clock estimate while we reconnect.
     this.clock?.stop()
     window.clearInterval(this.statsTimer)
+    if (code === CloseCode.REPLACED) {
+      // Another tab took our clientId (a duplicated tab shares sessionStorage): continue as a new member.
+      resetClientId()
+    }
+    if (retryInMs !== null) {
+      // From the last sign of life: a half-open connection is only noticed later, by the liveness check.
+      this.outageStartedAt ??= this.lastMessageAt ?? performance.now()
+      this.update({
+        connection: 'reconnecting',
+        reconnect: { attempt: (this.view.reconnect?.attempt ?? 0) + 1, retryAt: performance.now() + retryInMs },
+      })
+      return
+    }
     this.connection = null
     let error = this.view.error
     if (code === CloseCode.ROOM_NOT_FOUND) {
@@ -199,20 +330,21 @@ export class LiveRoomSession implements RoomSession {
       // Replaces any older error still on screen: the disconnect is what matters now.
       error = { code: 'DISCONNECTED', message: reason || 'Connection lost' }
     }
-    this.update({ connection: 'closed', error })
+    this.update({ connection: 'closed', reconnect: null, error })
   }
 
   // ---------- clock ----------
 
   private startClockSync(): void {
-    this.clock?.stop()
-    this.clock = new ClockSync((ping) => this.connection?.send(ping), () => this.onClockUpdate())
-    this.clock.start()
+    this.clock?.start()
     window.clearInterval(this.statsTimer)
     this.statsTimer = window.setInterval(() => this.sendStats(), STATS_INTERVAL_MS)
   }
 
   private onClockUpdate(): void {
+    if (this.syncedAfterMs === null && this.firstWelcomeAt !== null && this.clock?.estimator.synced) {
+      this.syncedAfterMs = performance.now() - this.firstWelcomeAt
+    }
     this.updateSync()
     if (this.pendingApply) this.applyPlayback()
   }
@@ -222,19 +354,24 @@ export class LiveRoomSession implements RoomSession {
     this.update({
       sync: {
         synced: estimator?.synced ?? false,
-        offsetMs: estimator?.offset() ?? null,
+        offsetMs: this.clock?.offset() ?? null,
         bestRttMs: estimator?.bestRtt() ?? null,
         samples: estimator?.sampleCount ?? 0,
         driftMs: this.driftMs,
         resyncs: this.resyncs,
         lastResync: this.lastResync,
+        driftStrategy: this.driftStrategy,
+        playbackRate: this.playbackRate,
+        clockStrategy: this.clockStrategy,
+        reconnects: this.reconnects,
+        lastOutageMs: this.lastOutageMs,
       },
     })
   }
 
   private sendStats(): void {
     const estimator = this.clock?.estimator
-    const offsetMs = estimator?.offset()
+    const offsetMs = this.clock?.offset()
     const rttMs = estimator?.bestRtt()
     if (!estimator?.synced || offsetMs == null || rttMs == null) return
     this.connection?.send({
@@ -243,15 +380,36 @@ export class LiveRoomSession implements RoomSession {
       rttMs,
       driftMs: this.driftMs,
       outputLatencyMs: this.engine?.outputLatencyMs() ?? null,
+      outputDelayMs: this.outputDelayMs,
+      clockStrategy: this.clockStrategy,
+      driftStrategy: this.driftStrategy,
+      naive: this.naive,
+      playbackRate: this.playbackRate,
+      resyncs: this.resyncs,
+      skewPpm: this.clock?.estimator.skewPpm() ?? null,
+      syncedAfterMs: this.syncedAfterMs,
+      reconnects: this.reconnects,
+      lastOutageMs: this.lastOutageMs,
+      evalChannel: this.evalChannel,
     })
   }
 
   // ---------- playback ----------
 
+  /**
+   * The clock offset for scheduling and measuring audio. An output that adds `outputDelayMs` the browser doesn't know
+   * about (Bluetooth) is treated as a device running that much later: everything is scheduled that much earlier, and
+   * drift is measured against the shifted timeline, so the correction keeps it there.
+   */
+  private playbackOffset(): number | null {
+    const offset = this.clock?.offset()
+    return offset == null ? null : offset + this.outputDelayMs
+  }
+
   private applyPlayback(): void {
     const engine = this.engine
     const state = this.view.playback
-    const offset = this.clock?.estimator.offset()
+    const offset = this.playbackOffset()
     if (!engine || !state || !this.clock?.estimator.synced || offset == null) return
     this.pendingApply = false
 
@@ -266,36 +424,54 @@ export class LiveRoomSession implements RoomSession {
       this.decode(plan.start.trackId).then(() => this.applyPlayback(), () => {})
     }
     this.prepareUpcoming(state)
-    this.update({ audio: { timestampSource: engine.timestampSource, outputLatencyMs: engine.outputLatencyMs() } })
+    this.update({
+      audio: { ...this.view.audio, timestampSource: engine.timestampSource, outputLatencyMs: engine.outputLatencyMs() },
+    })
   }
 
   /**
-   * Measures the timing error of the playing audio and restarts it at the right position when it's off, e.g.
-   * when the start was scheduled with a stale audio clock after the output had been idle (hard resync).
+   * Measures how far the playing audio is off the server timeline and corrects it with the drift strategy: by
+   * nudging the playback rate, or by restarting at the right position (hard resync). Errors come from the clock
+   * offset estimate improving, the audio clock running at a slightly different speed than the system clock, and
+   * starts scheduled with a stale audio clock after the output had been idle.
    */
   private checkTiming(): void {
     const engine = this.engine
     const state = this.view.playback
-    const offset = this.clock?.estimator.offset()
+    const offset = this.playbackOffset()
     if (!engine || offset == null || state?.status !== 'playing') {
-      this.previousDrift = null
+      this.readings = null
       this.setDrift(null)
+      this.setPlaybackRate(1)
       return
     }
     const serverNow = performance.now() + offset
     // Only audio of the current state; a segment that is about to be stopped by a pending change is left alone.
     const segment = engine.segments.find((s) => s.rev === state.rev && s.startAt <= serverNow && s.stopAt === null)
-    const errorMs = segment ? engine.timingErrorMs(segment, (serverTime) => serverTime - offset) : null
+    const errorMs = segment ? engine.positionErrorMs(segment, offset) : null
     this.setDrift(errorMs)
-    const previous = segment && this.previousDrift?.segment === segment ? this.previousDrift.errorMs : null
-    this.previousDrift = segment && errorMs !== null ? { segment, errorMs } : null
-    if (segment && errorMs !== null && needsResync(errorMs, previous, performance.now() - this.lastResyncAt)) {
+    if (!segment || errorMs === null) {
+      this.readings = null
+      this.setPlaybackRate(1)
+      return
+    }
+    if (this.readings?.segment !== segment) this.readings = { segment, list: [] }
+    const readings = this.readings.list
+    const nudgedMs = engine.nudgedMs(segment)
+    readings.push({ errorMs, nudgedMs })
+    if (readings.length > MAX_READINGS) readings.shift()
+
+    const correction = decideCorrection(this.driftStrategy, readings, engine.rateOf(segment), nudgedMs,
+      performance.now() - this.lastResyncAt)
+    if (correction.kind === 'rate') {
+      engine.setRate(segment, correction.rate)
+    } else if (correction.kind === 'resync') {
       this.lastResyncAt = performance.now()
       this.resyncs++
-      this.previousDrift = null
+      this.readings = null
       this.lastResync = { errorMs, timestampSource: engine.timestampSource }
       console.info(`Resync #${this.resyncs}: playback was ${errorMs.toFixed(1)} ms off`, {
-        previousErrorMs: previous,
+        previousErrorsMs: readings.slice(0, -1).map((r) => r.errorMs),
         timestampSource: engine.timestampSource,
         outputLatencyMs: engine.outputLatencyMs(),
         baseLatencyMs: engine.context.baseLatency * 1000,
@@ -305,6 +481,14 @@ export class LiveRoomSession implements RoomSession {
       this.applyPlayback()
       this.updateSync()
     }
+    // A discarded segment reports rate 1, like the fresh one replacing it.
+    this.setPlaybackRate(engine.rateOf(segment))
+  }
+
+  private setPlaybackRate(rate: number): void {
+    if (rate === this.playbackRate) return
+    this.playbackRate = rate
+    this.updateSync()
   }
 
   private setDrift(driftMs: number | null): void {

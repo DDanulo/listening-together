@@ -2,7 +2,7 @@ import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import type { Member, PlaybackState, Track } from '../protocol/types'
 import type { RoomSession, RoomView } from '../session/types'
 import { formatMs, formatTime } from './format'
-import { useTicker } from './useRoom'
+import { useNow, useTicker } from './useRoom'
 
 interface Props {
   session: RoomSession
@@ -19,6 +19,7 @@ export function RoomScreen({ session, view }: Props) {
           <button className="link" onClick={() => session.dismissError()}>Dismiss</button>
         </p>
       )}
+      {view.connection === 'reconnecting' && <ReconnectBanner view={view} />}
       {view.connection === 'closed' && (
         <p className="error banner">
           Disconnected. <a href={location.pathname}>Rejoin</a>
@@ -29,6 +30,18 @@ export function RoomScreen({ session, view }: Props) {
       <Members view={view} />
       <SyncPanel session={session} view={view} />
     </main>
+  )
+}
+
+function ReconnectBanner({ view }: { view: RoomView }) {
+  const now = useNow(250)
+  const waitMs = view.reconnect ? view.reconnect.retryAt - now : 0
+  return (
+    <p className="warning banner" role="status">
+      Connection lost: reconnecting{waitMs > 0 ? ` in ${Math.ceil(waitMs / 1000)} s` : ''}
+      {view.reconnect && view.reconnect.attempt > 1 ? ` (attempt ${view.reconnect.attempt})` : ''}.
+      {' '}The music keeps playing.
+    </p>
   )
 }
 
@@ -57,7 +70,8 @@ function Player({ session, view }: Props) {
   const position = session.getPositionMs()
   const serverNow = session.getServerTime()
   const pendingMs = playback && serverNow !== null ? playback.effectiveAt - serverNow : 0
-  const disabled = !view.sync.synced
+  // Commands need the server (rule 4): while reconnecting they would be lost.
+  const disabled = !view.sync.synced || view.connection !== 'open'
   const playing = playback?.status === 'playing'
 
   const changeVolume = (event: ChangeEvent<HTMLInputElement>) => {
@@ -91,7 +105,13 @@ function Player({ session, view }: Props) {
           <input type="range" min={0} max={1} step={0.05} value={volume} onChange={changeVolume} />
         </label>
       </div>
-      {disabled && <p className="muted">Synchronizing clock…</p>}
+      <label className="row muted" title="Bluetooth headphones delay the sound by 100–300 ms without telling the browser">
+        Output delay
+        <input type="number" className="delay" min={0} max={500} step={10} value={view.audio.outputDelayMs}
+          onChange={(e) => session.setOutputDelayMs(Number(e.target.value))} />
+        ms · raise it if your headphones sound behind the others
+      </label>
+      {!view.sync.synced && <p className="muted">Synchronizing clock…</p>}
     </section>
   )
 }
@@ -217,13 +237,14 @@ function TrackRow({ track, view, uploader, onSelect, onRemove }: TrackRowProps) 
   const download = view.downloads[track.trackId]
   return (
     <li className={current ? 'current' : undefined}>
-      <button className="link grow" onClick={onSelect} disabled={!view.sync.synced}>
+      <button className="link grow" onClick={onSelect} disabled={!view.sync.synced || view.connection !== 'open'}>
         {current ? '▶ ' : ''}{track.title}
       </button>
       <span className="muted">
         {formatTime(track.durationMs)} · {uploader ?? 'someone'}{download && download !== 'ready' ? ` · ${download}` : ''}
       </span>
-      <button className="link" aria-label={`Remove ${track.title}`} onClick={onRemove}>✕</button>
+      <button className="link" aria-label={`Remove ${track.title}`} onClick={onRemove}
+        disabled={view.connection !== 'open'}>✕</button>
     </li>
   )
 }
@@ -232,14 +253,16 @@ function Members({ view }: { view: RoomView }) {
   const currentTrack = view.playback?.trackId
   return (
     <section className="card">
-      <h2>Listeners ({view.members.length})</h2>
+      <h2>Listeners ({view.members.filter((m) => m.connected).length})</h2>
       <ul className="list">
         {view.members.map((member) => (
-          <li key={member.memberId}>
+          <li key={member.memberId} className={member.connected ? undefined : 'offline'}>
             <span className="grow">{member.name}{member.memberId === view.me ? ' (you)' : ''}</span>
             <span className="muted">
-              {currentTrack && member.downloads[currentTrack] ? `${member.downloads[currentTrack]} · ` : ''}
-              {member.sync ? `RTT ${formatMs(member.sync.rttMs, 0)}` : 'syncing'}
+              {!member.connected ? 'reconnecting…' : <>
+                {currentTrack && member.downloads[currentTrack] ? `${member.downloads[currentTrack]} · ` : ''}
+                {member.sync ? `RTT ${formatMs(member.sync.rttMs, 0)}` : 'syncing'}
+              </>}
             </span>
           </li>
         ))}
@@ -260,7 +283,11 @@ function SyncPanel({ session, view }: Props) {
     ['Best RTT', formatMs(view.sync.bestRttMs, 2)],
     ['Samples', String(view.sync.samples)],
     ['Clock check (A1)', formatMs(clockCheck, 2)],
-    ['Timing error', formatMs(view.sync.driftMs, 1)],
+    ['Position error', formatMs(view.sync.driftMs, 1)],
+    ['Clock strategy', view.sync.clockStrategy],
+    ['Drift correction', view.sync.driftStrategy],
+    ['Playback rate', view.sync.playbackRate === 1 ? '1 (normal)'
+      : `${view.sync.playbackRate.toFixed(4)} (${view.sync.playbackRate > 1 ? 'catching up' : 'slowing down'})`],
     ['Resyncs', String(view.sync.resyncs)],
     ['Last resync', view.sync.lastResync
       ? `${formatMs(view.sync.lastResync.errorMs, 0)} (${view.sync.lastResync.timestampSource})` : '–'],
@@ -268,6 +295,10 @@ function SyncPanel({ session, view }: Props) {
     ['Next change in', untilEffective !== null && untilEffective > 0 ? formatMs(untilEffective, 0) : '–'],
     ['Timestamp source', view.audio.timestampSource],
     ['Output latency', formatMs(view.audio.outputLatencyMs, 1)],
+    ['Output delay (manual)', formatMs(view.audio.outputDelayMs, 0)],
+    ['Reconnects', view.sync.reconnects === 0 ? '0'
+      : `${view.sync.reconnects} (last outage ${formatMs(view.sync.lastOutageMs, 0)})`],
+    ['Eval channel', view.evalChannel ?? '–'],
   ]
   return (
     <details className="card" open>

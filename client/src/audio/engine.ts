@@ -1,10 +1,18 @@
+import type { EvalChannel } from '../protocol/types'
 import type { Plan, Segment } from '../sync/playback'
-import { type AudioClockPair, audioToClientTime, clientToAudioTime, isFresh } from './timeMapping'
+import {
+  type AudioClockPair, MIN_START_LEAD_S, type RateAnchor, catchUpStart, clientToAudioTime, isFresh, positionAtAudioTime,
+  positionErrorMs,
+} from './timeMapping'
 
 interface ActiveSegment extends Segment {
   source: AudioBufferSourceNode
-  /** AudioContext time (s) at which `position` plays. */
-  audioStart: number
+  /** Evaluation channel routing, if any (see `connect`). */
+  splitter: ChannelSplitterNode | null
+  /** Playback-rate history (drift nudging), oldest first; the first anchor is the start. */
+  anchors: RateAnchor[]
+  /** Drift nudging so far: the current rate, since when (AudioContext s), and the ms of track gained before. */
+  nudge: { rate: number; since: number; gainedMs: number }
 }
 
 export type TimestampSource = 'outputTimestamp' | 'currentTime'
@@ -16,8 +24,10 @@ export class AudioEngine {
   private readonly decoded = new Map<string, AudioBuffer>()
   private active: ActiveSegment[] = []
   private lastTimestampSource: TimestampSource = 'currentTime'
+  private readonly evalChannel: EvalChannel | null
 
-  constructor() {
+  constructor(evalChannel: EvalChannel | null = null) {
+    this.evalChannel = evalChannel
     this.gain = this.context.createGain()
     this.gain.connect(this.context.destination)
   }
@@ -99,24 +109,78 @@ export class AudioEngine {
 
     const source = this.context.createBufferSource()
     source.buffer = buffer
-    source.connect(this.gain)
-    const when = audioTime(plan.start.startAt)
-    source.start(when, plan.start.position / 1000)
-    // A start time in the past plays immediately, from the given offset.
-    const segment: ActiveSegment = { ...plan.start, stopAt: null, source, audioStart: Math.max(when, this.context.currentTime) }
+    const splitter = this.connect(source, buffer.numberOfChannels)
+    // The planner's margin is in server time; on the audio clock the start can still be in the past, because the
+    // output-timestamp mapping lags currentTime by the output latency.
+    const { when, position } = catchUpStart(audioTime(plan.start.startAt), plan.start.position,
+      this.context.currentTime + MIN_START_LEAD_S)
+    source.start(when, position / 1000)
+    const segment: ActiveSegment = {
+      ...plan.start,
+      stopAt: null,
+      source,
+      splitter,
+      anchors: [{ audioTime: when, position, rate: 1 }],
+      nudge: { rate: 1, since: when, gainedMs: 0 },
+    }
     source.onended = () => this.remove(segment)
     this.active.push(segment)
     return true
   }
 
   /**
-   * How late the segment's audio comes out compared to when it should (ms, positive = late), measured with a
-   * fresh clock reading. Null if the segment isn't playing.
+   * How far the segment's audio is behind the server timeline (ms; negative = ahead), measured at the moment the
+   * sound leaves the speaker with a fresh clock reading. Null if the segment isn't playing.
+   *
+   * @param offset serverTime − clientTime
    */
-  timingErrorMs(segment: Segment, toClientTime: (serverTime: number) => number): number | null {
+  positionErrorMs(segment: Segment, offset: number): number | null {
     const active = this.find(segment)
-    if (!active) return null
-    return audioToClientTime(active.audioStart, this.clockPair()) - toClientTime(active.startAt)
+    return active ? positionErrorMs(active, active.anchors, this.clockPair(), offset) : null
+  }
+
+  /** The nudging rate of a segment (1 if it isn't playing). */
+  rateOf(segment: Segment): number {
+    return this.find(segment)?.nudge.rate ?? 1
+  }
+
+  /** How many ms of track nudging has gained for a segment so far (negative = lost by playing slower). */
+  nudgedMs(segment: Segment): number {
+    const nudge = this.find(segment)?.nudge
+    if (!nudge) return 0
+    const elapsed = Math.max(0, this.context.currentTime - nudge.since)
+    return nudge.gainedMs + (nudge.rate - 1) * elapsed * 1000
+  }
+
+  /**
+   * Changes the playback speed of a segment from now on (drift nudging). The pitch changes along with it, which is
+   * why the caller keeps the rate within a fraction of a percent.
+   */
+  setRate(segment: Segment, rate: number): void {
+    const active = this.find(segment)
+    if (!active) return
+    const now = this.context.currentTime
+    active.source.playbackRate.setValueAtTime(rate, now)
+    active.anchors.push({ audioTime: now, position: positionAtAudioTime(active.anchors, now), rate })
+    active.nudge = { rate, since: now, gainedMs: this.nudgedMs(segment) }
+  }
+
+  /**
+   * Moves a segment's audio `ms` ahead (or behind, if negative) by playing at ±10 % speed for a moment. Not counted
+   * as nudging: to the drift correction it is an error like any other.
+   */
+  shift(segment: Segment, ms: number): void {
+    const active = this.find(segment)
+    if (!active || ms === 0) return
+    const start = this.context.currentTime + 0.05
+    // At ±10 % speed, the track moves 0.1 ms per ms against real time: `ms` takes 10 × ms = ms / 100 seconds.
+    const end = start + Math.abs(ms) / 100
+    const rate = this.rateOf(segment)
+    const fast = rate + (ms > 0 ? 0.1 : -0.1)
+    active.source.playbackRate.setValueAtTime(fast, start)
+    active.source.playbackRate.setValueAtTime(rate, end)
+    active.anchors.push({ audioTime: start, position: positionAtAudioTime(active.anchors, start), rate: fast })
+    active.anchors.push({ audioTime: end, position: positionAtAudioTime(active.anchors, end), rate })
   }
 
   /** Stops a segment immediately and forgets it (used before a resync restarts it). */
@@ -168,6 +232,28 @@ export class AudioEngine {
     return { contextTime: this.context.currentTime, performanceTime: performance.now() + latencySeconds * 1000 }
   }
 
+  /**
+   * Normal playback: source → volume. With an evaluation channel, only that channel of the (multichannel) click
+   * track is played, as mono on all speakers, so each device's clicks can be told apart in one recording; `all`
+   * sums every channel (calibration). A splitter only routes channels: it adds no delay.
+   */
+  private connect(source: AudioBufferSourceNode, channels: number): ChannelSplitterNode | null {
+    if (this.evalChannel === null || channels < 2) {
+      source.connect(this.gain)
+      return null
+    }
+    const splitter = this.context.createChannelSplitter(channels)
+    source.connect(splitter)
+    const channel = Number(this.evalChannel) - 1
+    if (this.evalChannel !== 'all' && channel < channels) {
+      splitter.connect(this.gain, channel)
+    } else {
+      // Mono outputs connected to one input are summed.
+      for (let i = 0; i < channels; i++) splitter.connect(this.gain, i)
+    }
+    return splitter
+  }
+
   private find(segment: Segment): ActiveSegment | undefined {
     return this.active.find((s) => s === segment)
   }
@@ -175,5 +261,6 @@ export class AudioEngine {
   private remove(segment: ActiveSegment): void {
     this.active = this.active.filter((s) => s !== segment)
     segment.source.disconnect()
+    segment.splitter?.disconnect()
   }
 }

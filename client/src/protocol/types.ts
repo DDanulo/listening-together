@@ -88,7 +88,22 @@ export interface StatsMessage {
   rttMs: number
   driftMs: number | null
   outputLatencyMs: number | null
+  // Optional, for the evaluation (protocol §6.1): logged by the server.
+  outputDelayMs?: number
+  clockStrategy?: 'single' | 'best' | 'periodic' | 'regression'
+  driftStrategy?: 'off' | 'resync' | 'nudge'
+  naive?: boolean
+  playbackRate?: number
+  resyncs?: number
+  skewPpm?: number | null
+  syncedAfterMs?: number | null
+  reconnects?: number
+  lastOutageMs?: number | null
+  evalChannel?: EvalChannel | null
 }
+
+/** Channel of the multichannel evaluation click track a device plays (eval/README.md). */
+export type EvalChannel = '1' | '2' | '3' | 'all'
 
 export type ClientMessage =
   | HelloMessage
@@ -168,8 +183,12 @@ export type ServerMessage =
 export const CloseCode = {
   NORMAL: 1000,
   GOING_AWAY: 1001,
+  /** Sent by the client when it abandons a connection that looks dead. */
+  CLIENT_TIMEOUT: 4000,
   PROTOCOL_ERROR: 4400,
   ROOM_NOT_FOUND: 4404,
   ROOM_FULL: 4409,
+  /** A newer connection with the same clientId took over this member. */
+  REPLACED: 4410,
   RATE_LIMITED: 4429,
 } as const

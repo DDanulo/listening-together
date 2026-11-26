@@ -36,6 +36,7 @@ public class RoomService {
 
 	static final double MEMBERS_BROADCAST_INTERVAL_MS = 2000;
 	static final long SWEEP_INTERVAL_SECONDS = 30;
+	static final int MAX_LABEL_LENGTH = 16;
 
 	private static final Logger log = LoggerFactory.getLogger(RoomService.class);
 
@@ -69,39 +70,93 @@ public class RoomService {
 				TimeUnit.SECONDS);
 	}
 
+	/** Result of a {@code hello}: the member, and the connection it replaced (to be closed), if any. */
+	public record Joined(MemberState member, WebSocketSession replaced) {
+	}
+
 	/**
+	 * Joins a new member, or gives a returning client (same {@code clientId}) its member back (protocol §3.2).
+	 *
 	 * @throws CommandException {@code ROOM_FULL} if the room has the maximum number of members, or
 	 *         {@code ROOM_NOT_FOUND} if it was deleted in the meantime
 	 */
-	public MemberState join(Room room, WebSocketSession session, String name) {
+	public Joined join(Room room, WebSocketSession session, String name, String clientId) {
 		synchronized (room) {
 			if (room.closed) {
 				throw new CommandException(ErrorCode.ROOM_NOT_FOUND, "Room not found");
 			}
+			MemberState existing = room.findByClientId(clientId).orElse(null);
+			if (existing != null) {
+				// A stale socket (e.g. half-open after a network switch) may still look connected: the new one wins.
+				boolean wasConnected = existing.connected();
+				double gapMs = wasConnected ? 0 : clock.nowMs() - existing.disconnectedAt();
+				WebSocketSession previous = existing.reconnect(session, name);
+				welcome(room, existing);
+				events.log("reconnect", room.id(), existing.memberId(), fields(
+						"gapMs", gapMs,
+						"replacedOpenConnection", wasConnected));
+				return new Joined(existing, previous == session ? null : previous);
+			}
 			if (room.members.size() >= limits.maxMembers()) {
 				throw new CommandException(ErrorCode.ROOM_FULL, "The room is full (" + limits.maxMembers() + " listeners)");
 			}
-			MemberState member = new MemberState(ids.memberId(), name, session);
+			MemberState member = new MemberState(ids.memberId(), clientId, name, session);
 			room.members.put(member.memberId(), member);
-			sender.send(session, new ServerMessage.Welcome(ServerMessage.PROTOCOL_VERSION, member.memberId(),
-					clock.nowMs(), room.snapshot()));
-			broadcastMembers(room);
+			welcome(room, member);
 			events.log("join", room.id(), member.memberId(), fields("name", name));
-			return member;
+			return new Joined(member, null);
 		}
 	}
 
-	public void leave(Room room, MemberState member) {
+	/**
+	 * Handles a closed connection. A user who left on purpose ({@code intentional}, close code 1000) is removed at
+	 * once; otherwise the member stays, marked disconnected, for the reconnect grace period. Idempotent, and a
+	 * close of a connection that was already replaced by a reconnect is ignored.
+	 */
+	public void leave(Room room, MemberState member, WebSocketSession session, boolean intentional) {
 		synchronized (room) {
-			// PoC: no reconnect grace period; a returning client joins as a new member (protocol §3.2 later).
-			if (room.members.remove(member.memberId()) != null) {
-				if (room.members.isEmpty()) {
-					room.emptySince = clock.nowMs();
-				}
-				broadcastMembers(room);
-				events.log("leave", room.id(), member.memberId(), fields());
+			if (room.members.get(member.memberId()) != member || member.session() != session) {
+				return;
 			}
+			if (intentional) {
+				removeMember(room, member, "left");
+				return;
+			}
+			if (!member.connected()) {
+				return;
+			}
+			double now = clock.nowMs();
+			member.disconnect(now, scheduler.schedule(() -> {
+				synchronized (room) {
+					// Still the same, still disconnected: it didn't come back in time.
+					if (room.members.get(member.memberId()) == member && !member.connected()) {
+						removeMember(room, member, "reconnectTimeout");
+					}
+				}
+			}, limits.reconnectGraceMs(), TimeUnit.MILLISECONDS));
+			if (!room.hasConnectedMembers()) {
+				room.emptySince = now;
+			}
+			broadcastMembers(room);
+			events.log("disconnect", room.id(), member.memberId(), fields());
 		}
+	}
+
+	private void welcome(Room room, MemberState member) {
+		sender.send(member.session(), new ServerMessage.Welcome(ServerMessage.PROTOCOL_VERSION, member.memberId(),
+				clock.nowMs(), room.snapshot()));
+		broadcastMembers(room);
+	}
+
+	private void removeMember(Room room, MemberState member, String reason) {
+		member.cancelRemoval();
+		room.members.remove(member.memberId());
+		if (!room.hasConnectedMembers() && member.connected()) {
+			// The last connected member left; if it was already disconnected, emptySince was set back then.
+			room.emptySince = clock.nowMs();
+		}
+		broadcastMembers(room);
+		events.log("leave", room.id(), member.memberId(), fields("reason", reason));
 	}
 
 	public void command(Room room, MemberState member, ClientMessage.Command command) {
@@ -142,17 +197,18 @@ public class RoomService {
 		}
 	}
 
-	/** Deletes rooms that have had no members for the idle timeout, with their files (protocol §2). */
+	/** Deletes rooms that have had no connected members for the idle timeout, with their files (protocol §2). */
 	public void sweepIdleRooms() {
 		try {
 			double now = clock.nowMs();
 			for (Room room : rooms.all()) {
 				List<StoredTrack> files;
 				synchronized (room) {
-					if (!room.members.isEmpty() || now - room.emptySince < limits.idleTimeoutMs()) {
+					if (room.hasConnectedMembers() || now - room.emptySince < limits.idleTimeoutMs()) {
 						continue;
 					}
 					room.closed = true;
+					room.members.values().forEach(MemberState::cancelRemoval);
 					if (room.autoAdvanceTask != null) {
 						room.autoAdvanceTask.cancel(false);
 					}
@@ -198,11 +254,27 @@ public class RoomService {
 				"offsetMs", stats.offsetMs(),
 				"rttMs", stats.rttMs(),
 				"driftMs", stats.driftMs(),
-				"outputLatencyMs", stats.outputLatencyMs()));
+				"outputLatencyMs", stats.outputLatencyMs(),
+				"outputDelayMs", stats.outputDelayMs(),
+				"clockStrategy", label(stats.clockStrategy()),
+				"driftStrategy", label(stats.driftStrategy()),
+				"naive", stats.naive(),
+				"playbackRate", stats.playbackRate(),
+				"resyncs", stats.resyncs(),
+				"skewPpm", stats.skewPpm(),
+				"syncedAfterMs", stats.syncedAfterMs(),
+				"reconnects", stats.reconnects(),
+				"lastOutageMs", stats.lastOutageMs(),
+				"evalChannel", label(stats.evalChannel())));
 		synchronized (room) {
 			member.setSync(new MemberSync(stats.offsetMs(), stats.rttMs(), stats.driftMs()));
 			broadcastMembersThrottled(room);
 		}
+	}
+
+	/** Client-chosen strings end up in the log: keep them short. */
+	private static String label(String value) {
+		return value == null || value.length() <= MAX_LABEL_LENGTH ? value : value.substring(0, MAX_LABEL_LENGTH);
 	}
 
 	private void setPlayback(Room room, PlaybackState state, ServerMessage.Cause cause) {
@@ -267,9 +339,11 @@ public class RoomService {
 
 	private void broadcast(Room room, ServerMessage message) {
 		TextMessage encoded = sender.encode(message);
-		List<MemberState> members = List.copyOf(room.members.values());
-		for (MemberState member : members) {
-			sender.send(member.session(), encoded);
+		for (MemberState member : List.copyOf(room.members.values())) {
+			// A disconnected member's socket is closed; it gets the full state in welcome when it returns.
+			if (member.connected()) {
+				sender.send(member.session(), encoded);
+			}
 		}
 	}
 

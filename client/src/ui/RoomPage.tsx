@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { ApiError, getRoom } from '../session/api'
 import { LiveRoomSession } from '../session/session'
+import { experimentOptions } from './experiment'
 import { RoomScreen } from './RoomScreen'
 import { useRoom } from './useRoom'
 
@@ -9,7 +10,7 @@ const NAME_KEY = 'listening-together.name'
 export function RoomPage({ roomId }: { roomId: string }) {
   const [exists, setExists] = useState<'checking' | 'yes' | 'no' | 'error'>('checking')
   const session = useMemo(
-    () => new LiveRoomSession(roomId, { naive: new URLSearchParams(location.search).has('naive') }),
+    () => new LiveRoomSession(roomId, experimentOptions(location.search)),
     [roomId],
   )
   const view = useRoom(session)
@@ -21,6 +22,10 @@ export function RoomPage({ roomId }: { roomId: string }) {
     )
   }, [roomId])
   useEffect(() => () => session.leave(), [session])
+  useEffect(() => {
+    // Development builds only: lets the console poke the session, e.g. __session.debugShiftMs(30).
+    if (import.meta.env.DEV) Object.assign(window, { __session: session })
+  }, [session])
 
   if (exists === 'checking') return <main className="page"><p className="muted">Loading…</p></main>
   if (exists === 'no' || view.error?.code === 'ROOM_NOT_FOUND') {
@@ -34,7 +39,8 @@ export function RoomPage({ roomId }: { roomId: string }) {
   }
   if (exists === 'error') return <main className="page"><p className="error">Could not reach the server.</p></main>
   if (view.me === null) {
-    return <JoinForm onJoin={(name) => session.join(name)} connecting={view.connection === 'connecting'}
+    return <JoinForm onJoin={(name) => session.join(name)}
+      connecting={view.connection === 'connecting' || view.connection === 'reconnecting'}
       error={view.error?.message ?? null} />
   }
   return <RoomScreen session={session} view={view} />

@@ -1,8 +1,13 @@
-import type { Command, DownloadStatus, Member, PlaybackState, Track } from '../protocol/types'
+import type { Command, DownloadStatus, EvalChannel, Member, PlaybackState, Track } from '../protocol/types'
 import type { TimestampSource } from '../audio/engine'
+import type { ClockStrategy } from '../sync/clock'
+import type { DriftStrategy } from '../sync/drift'
 
 export interface RoomView {
-  connection: 'idle' | 'connecting' | 'open' | 'closed'
+  /** 'reconnecting': the connection dropped after joining; audio keeps playing meanwhile. */
+  connection: 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
+  /** While reconnecting: attempts so far and when (performance.now()) the next one starts. */
+  reconnect: { attempt: number; retryAt: number } | null
   roomId: string
   /** memberId after welcome */
   me: string | null
@@ -16,14 +21,24 @@ export interface RoomView {
     offsetMs: number | null
     bestRttMs: number | null
     samples: number
-    /** Timing error of the playing audio (ms, positive = behind); null when not playing. */
+    /** Position error of the playing audio (ms, positive = behind); null when not playing. */
     driftMs: number | null
-    /** How often playback was restarted to fix a timing error. */
+    /** How often playback was restarted to fix a timing error (hard resync). */
     resyncs: number
     /** Error that triggered the last resync, and the audio clock source used to measure it. */
     lastResync: { errorMs: number; timestampSource: TimestampSource } | null
+    driftStrategy: DriftStrategy
+    /** Playback rate of the playing audio: ≠ 1 while drift nudging corrects an error. */
+    playbackRate: number
+    clockStrategy: ClockStrategy
+    /** Successful reconnects since joining, and the client-measured duration of the last outage. */
+    reconnects: number
+    lastOutageMs: number | null
   }
-  audio: { timestampSource: TimestampSource; outputLatencyMs: number | null }
+  /** Evaluation: the click-track channel this device plays, or null for normal playback. */
+  evalChannel: EvalChannel | null
+  /** outputDelayMs: extra output latency set by the listener (Bluetooth), on top of what the browser reports. */
+  audio: { timestampSource: TimestampSource; outputLatencyMs: number | null; outputDelayMs: number }
   error: { code: string; message: string } | null
 }
 
@@ -38,6 +53,8 @@ export interface RoomSession {
   uploadTrack(file: File): Promise<void>
   /** 0..1, local only. */
   setVolume(volume: number): void
+  /** Local only: plays this much earlier to make up for output latency the browser doesn't report (Bluetooth). */
+  setOutputDelayMs(delayMs: number): void
   /** Live track position for animation frames (not part of the snapshot). */
   getPositionMs(): number | null
   /** Current server time estimate, e.g. for countdowns to effectiveAt. */

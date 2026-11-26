@@ -90,8 +90,11 @@ client                                            server
 - The client generates `clientId` (UUID v4) once per browser tab and keeps it in `sessionStorage`.
 - On disconnect, the client reconnects with exponential backoff (0.5 s, 1 s, 2 s, 4 s, then every 8 s) and sends `hello` with the **same `clientId`**. The server maps it to the **same `memberId`**.
 - **While disconnected, the client keeps playing** based on the last `playback` state and its last clock estimate. Audio is local, so a short disconnect must be inaudible.
-- After reconnecting, the client runs a new ping burst and reconciles with the `playback` state from `welcome`.
-- The server marks a member `connected: false` on disconnect and removes it after **60 s** without reconnecting.
+- After reconnecting, the client runs a new ping burst and reconciles with the `playback` state from `welcome` (applied only if its `rev` is newer than the last applied one). It keeps its clock estimate: the offset belongs to the two clocks, not to the connection.
+- The client also reconnects when the connection looks dead: no `pong` for **8 s** while pings are being sent every 5 s. After a network switch, browsers can take minutes to notice that a socket is gone.
+- The server marks a member `connected: false` on disconnect and removes it after **60 s** without reconnecting (`app.rooms.reconnect-grace-ms`). A close with code `1000` means the user left on purpose: the member is removed at once.
+- A disconnected member still counts toward the room's member limit. A room whose members are all disconnected counts as empty for the idle timeout (§2).
+- A `hello` whose `clientId` belongs to a member that still has an open connection takes that member over; the old connection is closed with `4410`. A client that receives `4410` on its current connection was replaced by a duplicate of itself (e.g. a duplicated browser tab copies `sessionStorage`): it generates a new `clientId` and joins again as a new member.
 
 ### 3.3 Close codes
 
@@ -99,9 +102,11 @@ client                                            server
 |---|---|
 | `1000` | Normal close (user left) |
 | `1001` | Server shutting down |
+| `4000` | Closed by the client because the connection looked dead (it reconnects) |
 | `4400` | Protocol violation or unsupported `protocolVersion` |
 | `4404` | Room not found |
 | `4409` | Room is full |
+| `4410` | Replaced by a newer connection with the same `clientId` (§3.2) |
 | `4429` | Too many messages (rate limit) |
 
 ---
@@ -196,7 +201,7 @@ When the current track ends, the server switches to the next track in the queue 
 ```json
 { "type": "hello", "protocolVersion": 1, "clientId": "b1c4…", "name": "Danylo" }
 ```
-`name`: 1–32 characters, trimmed.
+`name`: 1–32 characters, trimmed. `clientId`: 1–64 characters (a UUID v4 in practice); it is never sent to other clients.
 
 #### `ping`
 See [§4](#4-clock-synchronization).
@@ -236,6 +241,22 @@ Sync quality report, sent every **2 s** while connected. Used for the UI and log
 | `rttMs` | RTT of the best recent ping sample |
 | `driftMs` | `expected - actual` track position (positive = this client is behind); `null` when not playing |
 | `outputLatencyMs` | Audio output latency used for correction; `null` if unknown |
+
+Optional fields for the evaluation (`eval/`). The server only logs them; clients may omit any of them:
+
+| Field | Meaning |
+|---|---|
+| `outputDelayMs` | Extra output latency the listener set manually (e.g. Bluetooth headphones), on top of `outputLatencyMs` |
+| `clockStrategy` | Clock-sync strategy in use: `"single"`, `"best"`, `"periodic"` or `"regression"` (experiment E2) |
+| `driftStrategy` | Drift correction in use: `"off"`, `"resync"` or `"nudge"` (experiment E3) |
+| `naive` | `true` for the "play when the message arrives" baseline that ignores `effectiveAt` |
+| `playbackRate` | Current playback rate of the playing audio (`1` = normal speed; ≠ 1 while nudging) |
+| `resyncs` | Number of hard resyncs (playback restarts) since joining |
+| `skewPpm` | Estimated drift rate between the client and server clocks (`regression` only), else `null` |
+| `syncedAfterMs` | Time from the first `welcome` to the first usable clock estimate; `null` until then |
+| `reconnects` | Number of successful reconnects since joining |
+| `lastOutageMs` | Duration of the last outage, measured by the client: from the last message received before the connection was lost to the `welcome` after reconnecting; `null` if there was none. The server cannot measure this itself, because it may not notice a half-open connection |
+| `evalChannel` | Channel of the evaluation click track this device plays (`"1"`, `"2"`, `"3"`, `"all"`), or `null` |
 
 ### 6.2 Server → client
 

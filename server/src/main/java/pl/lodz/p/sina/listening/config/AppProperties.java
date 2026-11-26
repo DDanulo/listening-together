@@ -43,10 +43,12 @@ public record AppProperties(
 	}
 
 	/**
-	 * @param idleTimeoutMs a room without members is deleted after this time (also if nobody ever joined)
+	 * @param idleTimeoutMs a room without connected members is deleted after this time (also if nobody ever joined)
+	 * @param reconnectGraceMs a disconnected member keeps its place this long, so it can reconnect (protocol §3.2)
 	 */
 	public record Rooms(
 			@DefaultValue("600000") long idleTimeoutMs,
+			@DefaultValue("60000") long reconnectGraceMs,
 			@DefaultValue("500") int maxRooms,
 			@DefaultValue("20") int maxMembers,
 			@DefaultValue("30") int maxTracks,

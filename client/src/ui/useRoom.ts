@@ -13,3 +13,13 @@ export function useTicker(intervalMs: number): void {
     return () => window.clearInterval(id)
   }, [intervalMs])
 }
+
+/** performance.now(), refreshed every `intervalMs` (render must not read the clock itself). */
+export function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(performance.now()), intervalMs)
+    return () => window.clearInterval(id)
+  }, [intervalMs])
+  return now
+}

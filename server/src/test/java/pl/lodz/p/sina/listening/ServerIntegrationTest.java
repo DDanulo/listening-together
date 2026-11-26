@@ -3,6 +3,9 @@ package pl.lodz.p.sina.listening;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -245,5 +248,42 @@ class ServerIntegrationTest {
 			}
 			assertThat(alice.next("members").get("members")).hasSize(1);
 		}
+	}
+
+	@Test
+	void statsWithEvaluationFieldsAreLogged() throws Exception {
+		try (WsTestClient alice = WsTestClient.join(port, api.newRoom(IP), "alice", mapper)) {
+			alice.send("{\"type\":\"stats\",\"offsetMs\":-1532.4,\"rttMs\":38.2,\"driftMs\":1.7,"
+					+ "\"outputLatencyMs\":12.0,\"clockStrategy\":\"regression\",\"driftStrategy\":\"nudge\","
+					+ "\"playbackRate\":1.002,\"resyncs\":1,\"reconnects\":2,\"lastOutageMs\":5300.5,"
+					+ "\"evalChannel\":\"averyveryverylongchannelname\"}");
+
+			JsonNode line = awaitLogLine(alice.memberId(), "stats");
+			assertThat(line.get("rttMs").asDouble()).isEqualTo(38.2);
+			assertThat(line.get("clockStrategy").asString()).isEqualTo("regression");
+			assertThat(line.get("playbackRate").asDouble()).isEqualTo(1.002);
+			assertThat(line.get("lastOutageMs").asDouble()).isEqualTo(5300.5);
+			assertThat(line.get("naive").isNull()).isTrue();
+			assertThat(line.get("evalChannel").asString()).hasSize(16); // client strings are truncated
+		}
+	}
+
+	/** The event log is written on a background thread: wait for the line. */
+	private JsonNode awaitLogLine(String memberId, String event) throws Exception {
+		long deadline = System.nanoTime() + 5_000_000_000L;
+		while (System.nanoTime() < deadline) {
+			try (Stream<Path> files = Files.list(Path.of("target/test-logs"))) {
+				for (Path file : files.toList()) {
+					for (String text : Files.readAllLines(file)) {
+						JsonNode line = mapper.readTree(text);
+						if (memberId.equals(line.get("memberId").asString(null)) && event.equals(line.get("event").asString())) {
+							return line;
+						}
+					}
+				}
+			}
+			Thread.sleep(50);
+		}
+		throw new AssertionError("No " + event + " log line for " + memberId);
 	}
 }

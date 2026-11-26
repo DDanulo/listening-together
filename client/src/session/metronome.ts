@@ -49,14 +49,19 @@ export class MetronomeSession {
       message: (message, receivedAt) => {
         if (message.type === 'welcome') {
           this.connectionState = 'open'
-          this.clock = new ClockSync((ping) => this.connection?.send(ping), () => {})
+          this.clock ??= new ClockSync({
+            send: (ping) => this.connection?.send(ping),
+            update: () => {},
+            dead: () => this.connection?.reconnect('No pong'),
+          })
           this.clock.start()
         } else if (message.type === 'pong') {
           this.clock?.handlePong(message, receivedAt)
         }
       },
-      close: () => {
-        this.connectionState = 'closed'
+      close: (_code, _reason, retryInMs) => {
+        this.clock?.stop()
+        this.connectionState = retryInMs === null ? 'closed' : 'connecting'
       },
     })
     this.ticker = window.setInterval(() => this.tick(), TICK_MS)
@@ -76,7 +81,7 @@ export class MetronomeSession {
 
   snapshot(): MetronomeView {
     const estimator = this.clock?.estimator
-    const offset = estimator?.offset() ?? null
+    const offset = this.clock?.offset() ?? null
     return {
       connection: this.connectionState,
       synced: estimator?.synced ?? false,
@@ -90,7 +95,7 @@ export class MetronomeSession {
   }
 
   private tick(): void {
-    const offset = this.clock?.estimator.offset()
+    const offset = this.clock?.offset()
     if (!this.engine || !this.clock?.estimator.synced || offset == null) return
     const now = performance.now() + offset
     this.nextBeat ??= Math.ceil((now + LOOKAHEAD_MS) / BEAT_MS) * BEAT_MS

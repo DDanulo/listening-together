@@ -1,15 +1,34 @@
 const KEY = 'listening-together.clientId'
 
-/** One id per browser tab (protocol §3.2). */
+/** Also kept in memory: without sessionStorage (e.g. blocked), reconnects must still reuse the same id. */
+let current: string | null = null
+
+/** One id per browser tab (protocol §3.2); it survives reloads and reconnects. */
 export function clientId(): string {
+  if (current) return current
   try {
-    const existing = sessionStorage.getItem(KEY)
-    if (existing) return existing
-    const id = randomId()
-    sessionStorage.setItem(KEY, id)
-    return id
+    current = sessionStorage.getItem(KEY)
   } catch {
-    return randomId()
+    // storage blocked: the id lives only as long as this page
+  }
+  if (!current) store(randomId())
+  return current as string
+}
+
+/**
+ * Replaces this tab's id. Used after close 4410: a duplicated tab inherits sessionStorage, so two tabs end up with
+ * the same id and would keep taking the member from each other.
+ */
+export function resetClientId(): void {
+  store(randomId())
+}
+
+function store(id: string): void {
+  current = id
+  try {
+    sessionStorage.setItem(KEY, id)
+  } catch {
+    // see clientId()
   }
 }
 
