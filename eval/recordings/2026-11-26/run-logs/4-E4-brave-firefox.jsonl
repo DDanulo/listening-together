@@ -1,0 +1,5 @@
+{"event":"session-start","t":"2026-11-26T21:49:23.530"}
+{"event":"play","label":"E4-brave-firefox-r1","t":"2026-11-26T21:49:42.190","clumsy":"stop","pos":"0","bestRtt":"22.88 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 23 ms;ready · RTT 22 ms;"}
+{"event":"window","label":"E4-brave-firefox-r1","t":"2026-11-26T21:49:53.705","seconds":60}
+{"event":"end","label":"E4-brave-firefox-r1","t":"2026-11-26T21:50:56.112","pos":"72100","bestRtt":"22.08 ms","posError":"1.1 ms","resyncs":"1","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 22 ms;ready · RTT 23 ms;ready · RTT 31 ms;"}
+{"event":"session-end","t":"2026-11-26T21:51:08.688"}

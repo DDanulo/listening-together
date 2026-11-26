@@ -1,0 +1,61 @@
+{"event":"session-start","t":"2026-11-26T19:30:45.982"}
+{"event":"play","label":"E1-delay0-r1","t":"2026-11-26T19:31:07.569","clumsy":"stop","pos":"0","bestRtt":"22.18 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 22 ms;"}
+{"event":"window","label":"E1-delay0-r1","t":"2026-11-26T19:31:20.239","seconds":90}
+{"event":"end","label":"E1-delay0-r1","t":"2026-11-26T19:32:53.800","pos":"103800","bestRtt":"24.08 ms","posError":"-0.5 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"play","label":"E1-delay0-r2","t":"2026-11-26T19:33:25.689","clumsy":"stop","pos":"0","bestRtt":"22.08 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 22 ms;"}
+{"event":"window","label":"E1-delay0-r2","t":"2026-11-26T19:33:38.359","seconds":90}
+{"event":"end","label":"E1-delay0-r2","t":"2026-11-26T19:35:11.993","pos":"103800","bestRtt":"23.78 ms","posError":"1.0 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"play","label":"A3-pause-r1","t":"2026-11-26T19:35:44.800","clumsy":"stop","pos":"0","bestRtt":"23.99 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"action","label":"A3-pause-r1","action":"pause","t":"2026-11-26T19:36:17.026"}
+{"event":"window","label":"A3-pause-r1","t":"2026-11-26T19:36:22.031","seconds":45}
+{"event":"end","label":"A3-pause-r1","t":"2026-11-26T19:37:09.544","pos":"75500","bestRtt":"23.57 ms","posError":"-0.5 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"play","label":"A3-seek-r1","t":"2026-11-26T19:37:41.147","clumsy":"stop","pos":"0","bestRtt":"22.39 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 22 ms;"}
+{"event":"action","label":"A3-seek-r1","action":"seek","t":"2026-11-26T19:38:04.589"}
+{"event":"window","label":"A3-seek-r1","t":"2026-11-26T19:38:09.594","seconds":45}
+{"event":"end","label":"A3-seek-r1","t":"2026-11-26T19:38:57.155","pos":"171700","bestRtt":"22.89 ms","posError":"-1.7 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 23 ms;"}
+{"event":"play","label":"A3-skip-r1","t":"2026-11-26T19:39:28.041","clumsy":"stop","pos":"0","bestRtt":"41.70 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 24 ms;ready · RTT 42 ms;"}
+{"event":"action","label":"A3-skip-r1","action":"skip","t":"2026-11-26T19:39:53.392"}
+{"event":"window","label":"A3-skip-r1","t":"2026-11-26T19:39:59.591","seconds":45}
+{"event":"end","label":"A3-skip-r1","t":"2026-11-26T19:40:45.919","pos":"52000","bestRtt":"23.28 ms","posError":"-0.2 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 23 ms;"}
+{"event":"play","label":"A3-latejoin-r1","t":"2026-11-26T19:41:23.198","clumsy":"stop","pos":"0","bestRtt":"22.18 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 22 ms;"}
+{"event":"action","label":"A3-latejoin-r1","action":"latejoin","t":"2026-11-26T19:41:50.841"}
+{"event":"window","label":"A3-latejoin-r1","t":"2026-11-26T19:41:55.847","seconds":45}
+{"event":"end","label":"A3-latejoin-r1","t":"2026-11-26T19:42:43.364","pos":"76600","bestRtt":"24.39 ms","posError":"1.0 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"play","label":"E1-delay50-r1","t":"2026-11-26T19:43:14.615","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 25","pos":"0","bestRtt":"122.09 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 122 ms;"}
+{"event":"window","label":"E1-delay50-r1","t":"2026-11-26T19:43:28.659","seconds":90}
+{"event":"end","label":"E1-delay50-r1","t":"2026-11-26T19:45:02.798","pos":"104300","bestRtt":"95.98 ms","posError":"7.4 ms","resyncs":"0","rate":"1.0007 (catching up)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 96 ms;"}
+{"event":"play","label":"E1-delay50-r2","t":"2026-11-26T19:45:34.416","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 25","pos":"0","bestRtt":"95.18 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 95 ms;"}
+{"event":"window","label":"E1-delay50-r2","t":"2026-11-26T19:45:47.073","seconds":90}
+{"event":"end","label":"E1-delay50-r2","t":"2026-11-26T19:47:20.890","pos":"103800","bestRtt":"110.68 ms","posError":"7.3 ms","resyncs":"0","rate":"1.0003 (catching up)","reconnects":"0","listeners":"ready · RTT 24 ms;ready · RTT 117 ms;"}
+{"event":"play","label":"E1-delay150-r1","t":"2026-11-26T19:47:53.868","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 75","pos":"0","bestRtt":"183.09 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 24 ms;ready · RTT 183 ms;"}
+{"event":"window","label":"E1-delay150-r1","t":"2026-11-26T19:48:06.541","seconds":90}
+{"event":"end","label":"E1-delay150-r1","t":"2026-11-26T19:49:40.337","pos":"103800","bestRtt":"194.68 ms","posError":"7.5 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 195 ms;"}
+{"event":"play","label":"E1-delay150-r2","t":"2026-11-26T19:50:13.191","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 75","pos":"0","bestRtt":"187.49 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 187 ms;"}
+{"event":"window","label":"E1-delay150-r2","t":"2026-11-26T19:50:25.851","seconds":90}
+{"event":"end","label":"E1-delay150-r2","t":"2026-11-26T19:52:00.439","pos":"104100","bestRtt":"193.09 ms","posError":"1.0 ms","resyncs":"0","rate":"1.0001 (catching up)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 190 ms;"}
+{"event":"play","label":"E1-delay300-r1","t":"2026-11-26T19:52:34.374","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 150","pos":"0","bestRtt":"349.38 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 349 ms;"}
+{"event":"window","label":"E1-delay300-r1","t":"2026-11-26T19:52:47.017","seconds":90}
+{"event":"end","label":"E1-delay300-r1","t":"2026-11-26T19:54:20.662","pos":"103600","bestRtt":"362.28 ms","posError":"1.5 ms","resyncs":"0","rate":"1.0002 (catching up)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 362 ms;"}
+{"event":"play","label":"E1-delay300-r2","t":"2026-11-26T19:54:55.100","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 150","pos":"0","bestRtt":"345.19 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 345 ms;"}
+{"event":"window","label":"E1-delay300-r2","t":"2026-11-26T19:55:07.742","seconds":90}
+{"event":"end","label":"E1-delay300-r2","t":"2026-11-26T19:56:41.596","pos":"103900","bestRtt":"361.19 ms","posError":"0.1 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 361 ms;"}
+{"event":"play","label":"E1-loss5-r1","t":"2026-11-26T19:57:14.347","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 25 --drop on --drop-inbound on --drop-outbound on --drop-chance 5","pos":"0","bestRtt":"105.99 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 132 ms;"}
+{"event":"window","label":"E1-loss5-r1","t":"2026-11-26T19:57:26.992","seconds":90}
+{"event":"end","label":"E1-loss5-r1","t":"2026-11-26T19:58:59.521","pos":"103600","bestRtt":"110.19 ms","posError":"-5.4 ms","resyncs":"0","rate":"0.9998 (slowing down)","reconnects":"0","listeners":"ready · RTT 24 ms;ready · RTT 110 ms;"}
+{"event":"play","label":"E1-loss5-r2","t":"2026-11-26T19:59:33.095","clumsy":"--lag on --lag-inbound on --lag-outbound on --lag-time 25 --drop on --drop-inbound on --drop-outbound on --drop-chance 5","pos":"0","bestRtt":"106.98 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 107 ms;"}
+{"event":"window","label":"E1-loss5-r2","t":"2026-11-26T19:59:46.587","seconds":90}
+{"event":"end","label":"E1-loss5-r2","t":"2026-11-26T20:01:18.766","pos":"103500","bestRtt":"101.38 ms","posError":"-10.1 ms","resyncs":"0","rate":"0.9995 (slowing down)","reconnects":"0","listeners":"ready · RTT 24 ms;ready · RTT 94 ms;"}
+{"event":"play","label":"E1-asym150-r1","t":"2026-11-26T20:01:51.609","clumsy":"--lag on --lag-inbound off --lag-outbound on --lag-time 150","pos":"0","bestRtt":"196.49 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 196 ms;"}
+{"event":"window","label":"E1-asym150-r1","t":"2026-11-26T20:02:05.117","seconds":90}
+{"event":"end","label":"E1-asym150-r1","t":"2026-11-26T20:03:36.947","pos":"102800","bestRtt":"182.58 ms","posError":"3.8 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 183 ms;"}
+{"event":"play","label":"E6-outage10-r1","t":"2026-11-26T20:04:08.426","clumsy":"stop","pos":"0","bestRtt":"30.78 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 31 ms;"}
+{"event":"window","label":"E6-outage10-r1","t":"2026-11-26T20:04:22.055","seconds":90}
+{"event":"outage-start","label":"E6-outage10-r1","t":"2026-11-26T20:04:45.996"}
+{"event":"outage-end","label":"E6-outage10-r1","t":"2026-11-26T20:04:56.059"}
+{"event":"end","label":"E6-outage10-r1","t":"2026-11-26T20:05:57.904","pos":"106000","bestRtt":"24.18 ms","posError":"1.3 ms","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"play","label":"E6-outage30-r1","t":"2026-11-26T20:06:29.416","clumsy":"stop","pos":"0","bestRtt":"23.87 ms","posError":"–","resyncs":"0","rate":"1 (normal)","reconnects":"0","listeners":"ready · RTT 23 ms;ready · RTT 24 ms;"}
+{"event":"window","label":"E6-outage30-r1","t":"2026-11-26T20:06:42.085","seconds":120}
+{"event":"outage-start","label":"E6-outage30-r1","t":"2026-11-26T20:07:06.099"}
+{"event":"outage-end","label":"E6-outage30-r1","t":"2026-11-26T20:07:37.024"}
+{"event":"end","label":"E6-outage30-r1","t":"2026-11-26T20:08:48.779","pos":"136800","bestRtt":"22.68 ms","posError":"0.9 ms","resyncs":"0","rate":"1 (normal)","reconnects":"1 (last outage 35432 ms)","listeners":"ready · RTT 22 ms;ready · RTT 23 ms;"}
+{"event":"session-end","t":"2026-11-26T20:09:02.539"}
